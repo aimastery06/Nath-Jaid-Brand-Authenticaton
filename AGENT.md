@@ -368,3 +368,175 @@ Each was built with the recommendation below. Change any of them by updating `br
 | Shipping under $35 | $6 flat rate (confirmed) | `brand/README.md`, then `src/data/company.ts` |
 | Low-stock display | “Only a few left” at the per-product threshold (default 5); never exact counts | `/admin/inventory` |
 | Admin users | Granted with `npm run admin:grant` (`app_metadata.role = 'admin'`); no self-service invites | — |
+
+---
+
+# Phase 2a — Reproduce and Harden
+
+**Status: current state of the project.** Phase 2a explains how to rebuild this exact project from scratch. It records every bug found while building and testing Phases 1 and 2 and turns each one into a check in its Definition of Done. [Phase 1](#goal) and [Phase 2](#phase-2--commerce) remain the specification. Phase 2a adds no features. It adds the exact setup, the extra pieces that came out of debugging, and the checks that keep those bugs from coming back.
+
+## Phase 2a Goal
+
+An agent following this file builds a site that matches the current repository, and every problem listed in the [debug log](#debug-log) is ruled out before the work is called done.
+
+## Toolchain
+
+| Tool | Version used | Notes |
+|---|---|---|
+| Node | 22.12+ | `node --test` needs a quoted glob (`"tests/unit/*.test.mjs"`), not a directory |
+| Astro | 7.x | Runs `astro dev` in the background; `@astrojs/check` 0.9 for `npm run check` |
+| `@astrojs/vercel` | 11.x | SSR adapter |
+| `@supabase/supabase-js`, `@supabase/ssr` | 2.x, 0.12.x | |
+| `stripe` | 23.x | |
+| TypeScript, `@types/node` | 6.x, 22.x | `@types/node` is required because `astro.config.mjs` reads `process.env` |
+| Supabase CLI | 2.x (dev dependency) | Needs Docker for the local stack |
+| Stripe CLI | current | Only for `npm run stripe:listen` |
+
+## Reproduction Order
+
+1. Build Phase 1 by its [Build Order](#build-order), then apply the [Phase 1 regression fixes](#phase-1-regressions) before starting Phase 2.
+2. Record the confirmed brand facts in `brand/` before writing commerce code:
+   - Shipping: $6 flat under $35, complimentary at $35 or more, US only.
+   - Sales tax: 3.25% on candles, not on shipping.
+   - Legal business name: Nath & Jaid Fragrances.
+   - Policies in `brand/policies/`: approved as written.
+   - Still **pending confirmation** (blocks `npm run check:launch`): processing time and the card statement descriptor.
+3. Build Phase 2 by its [Build Order](#phase-2-build-order). Use two migrations: `20261011000000_commerce.sql`, plus `20261011010000_tax_on_pending_orders.sql`, which stores the tax estimate on pending orders.
+4. Add the pieces that Phase 2 does not specify but the project needs (see [Additions from Debugging](#additions-from-debugging)).
+5. Apply the [required configuration](#required-configuration) exactly.
+6. Run the [Phase 2a Definition of Done](#phase-2a-definition-of-done).
+
+## Additions from Debugging
+
+Each item below exists because of a bug in the [debug log](#debug-log). Build all of them.
+
+| Path | Purpose |
+|---|---|
+| `src/pages/api/session.ts` | `GET`: the signed-in visitor's own `{ id, firstName, email }` or `null`. Sends `Cache-Control: private, no-store` and `Vary: Cookie`. Prerendered pages use it to learn who is signed in. |
+| `src/components/Header.astro` | Signed-in account menu: first name with ▾ on desktop, a panel with "Signed in as <email>", "Your account" and "Sign out". On mobile, the account icon opens the same panel and the menu gains "Sign out". Escape, an outside click, or tabbing away closes it. Only calls `/api/session` when a Supabase session cookie exists. |
+| `src/scripts/bag.ts` | The bag records its owner (`null` for a guest). `syncBagOwner(userId)` empties the bag when its owner is no longer signed in or a different account signs in. A guest bag passes to the account that signs in. Bags saved before owners were recorded are discarded. `clearBag()` runs on every sign-out form. |
+| `src/lib/server/forms.ts` | `safeNext()`: allows only same-site return paths and parses them the way a browser does. `confirmUrl()`: builds the `/account/confirm?next=…` address that every auth email call passes to Supabase as its redirect. |
+| `src/pages/account/confirm.ts` | Accepts both `?token_hash=…&type=…` (branded templates) and `?code=…` (Supabase default templates). Sends failures to sign-in with a clear message. |
+| `scripts/connect-supabase.mjs` | `npm run db:connect [-- --seed]`: links the hosted project named by `SUPABASE_URL`, applies migrations (and seed), pushes `[auth]` settings and templates, and fills in blank or mismatched keys in `.env`. If a free-tier project refuses custom templates, it retries without them. |
+| `src/styles/global.css` | `--page-top-space` (1.75rem to 2.75rem), applied to `main > .section:first-child` on every page with a header; `admin.css` uses it too. |
+| `tests/integration/auth.test.mjs` | Return-to-page, open-redirect payloads, wrong password, header shows only own identity, cross-customer order access, profile tampering, forged cookie, reuse of a signed-out cookie, customer on `/admin`. |
+| `tests/unit/bag.test.mjs` | `npm run test:unit`: bag ownership scenarios (see the debug log). |
+
+## Required Configuration
+
+| Setting | Value | Why |
+|---|---|---|
+| Dev server port | `server.port: 4321` with `vite.server.strictPort: true` in `astro.config.mjs` | Auth email links point to `SITE_URL`. A silent move to 4322 breaks them. |
+| Local Supabase ports | 554xx (`api` 55421, `db` 55422, `studio` 55423, Mailpit 55424, pooler 55429, shadow 55420) | The default 543xx ports clash with other local Supabase projects |
+| `[auth] site_url` | `http://localhost:4321` locally; the production domain when live | The fallback target for email links |
+| `[auth] additional_redirect_urls` | `http://localhost:4321/**`, `http://127.0.0.1:4321/**`; add `https://<domain>/account/confirm` for production | `confirmUrl()` redirects are refused unless they are listed |
+| `[auth] minimum_password_length` | `8` | Matches `MIN_PASSWORD_LENGTH` |
+| `[auth.email] enable_confirmations` | `true` | Verified email is required to claim guest orders |
+| `.env` | Exactly one active `SUPABASE_URL`, with keys from the same project | Duplicate lines silently override each other |
+
+## Debug Log
+
+Every issue found so far, with its root cause and the fix that is now in the code. Each one has a matching check in the Definition of Done.
+
+### Supabase and auth email
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| D1 | After sign-up, no email reaches Gmail and no user appears on supabase.com | `.env` pointed at the **local** stack. The user was in local Studio (55423) and the email in Mailpit (55424). The local stack never sends real email. | Documented. Use a hosted project via `npm run db:connect` to get real accounts and emails. |
+| D2 | Confirmation link opens a 404 | Another process held port 4321, so `astro dev` silently moved to 4322 while email links still pointed to 4321 | Pinned the port with `strictPort`. `npm run dev` now fails instead of drifting. Free the port before starting. |
+| D3 | Switching to another Supabase project by changing keys alone breaks the site | A new project has no tables, auth settings, redirect URLs or templates | `scripts/connect-supabase.mjs` sets up whichever project `SUPABASE_URL` names and corrects mismatched keys |
+| D4 | Verification link goes to `http://localhost:3000/?code=…` ("site can't be reached") | Free-tier projects on the built-in sender reject custom email templates, and that rejected the **whole** auth config push, so Site URL stayed `localhost:3000` with no redirect URLs. The app also handled only `?token_hash=` links. | The connect script retries without templates. `confirm.ts` handles `?code=` as well. Sign-up, reset and magic link all pass `confirmUrl()` as the redirect. |
+| D5 | A signed-up user has no `profiles` row | They signed up before the migrations ran, so the sign-up trigger did not exist yet | Run migrations before the first sign-up; backfill missing profile rows |
+| D6 | The wrong Supabase project is used | `SUPABASE_URL` appeared twice in `.env` | Keep a single active line; comment out the other |
+| D7 | `?code=` links fail when opened in another browser | Default-template links use PKCE and only work in the browser that started the flow | Expected. The error message explains it. Branded templates (custom SMTP) work in any browser. |
+
+### Session, header and security
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| D8 | After sign-in, the home page still shows "Account" and there is no way to sign out | Storefront pages are prerendered and cannot know the session | `/api/session` (never cached) plus the header account menu with sign-out. Sign-in returns to the page the visitor came from. |
+| D9 | `/account/sign-in?next=/%09/evil.com` sends the user to an outside site after sign-in | The old return-path check missed characters that browsers strip (tab, newline), which leaves `//evil.com` | `safeNext()` resolves the path with the URL parser and allows only the site's own origin. Tested with nine payloads (`//`, `\`, tab, newline, `javascript:` and others). |
+| D10 | User 1's bag is visible after sign-out and to user 2 on the same browser | The `localStorage` bag had one fixed key and no owner | The bag records an owner; `syncBagOwner` and `clearBag` (see [Additions](#additions-from-debugging)). Trade-off: a bag no longer survives sign-out. Keeping it across devices would need a Supabase bag table with RLS. |
+
+### Database and tests
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| D11 | `supabase db reset` appears to fail, then `db:test` times out with `DbConnectError` | Containers were still restarting, not a migration error | Wait until `docker ps` shows the containers healthy, retry, and only then debug the SQL. Run `npm run db:types` again after a successful reset. |
+| D12 | One integration run fails right after a database restart | Same startup timing | Rerun after the stack is healthy. Treat a failure as real only if it repeats. |
+| D13 | A pgTAP stock test fails | A temporary table in the test harness lacked a grant for the admin role | Grant the role in the test setup |
+| D14 | `astro check` errors on `process.env` | Node types were missing | Add `@types/node` |
+| D15 | `node --test tests/integration` fails on Node 22 | Node 22 needs a glob, not a directory | Use a quoted glob in npm scripts |
+| D16 | `supabase start` port conflict | Another local Supabase project uses the default ports | 554xx ports in `supabase/config.toml` |
+
+### Phase 1 Regressions
+
+| # | Symptom | Fix |
+|---|---|---|
+| D17 | Homepage hero cropped away from 16:9 | Removed the height cap; exactly 16:9 at every width |
+| D18 | Motion beyond what the brand allows | Removed smooth scrolling, the animated nav underline and the animated slideshow dot. Motion is limited to the card zoom, the slideshow cross-fade, the menu icon and button colour changes. |
+| D19 | Logo almost touches the nav at 960–1000px | The logo scales down there, leaving at least 48px |
+| D20 | Announcement bar wraps at 320px | Stays on one line |
+| D21 | Skip-link focus outline gold on Cream (2.31:1) | Evergreen outline |
+| D22 | Some buttons bypassed the shared component | Every button uses `Button.astro` |
+| D23 | Our Story photo sat inside the page margins | Runs edge to edge at 3:2, directly on the section below, with no text over it |
+| D24 | Too much space between the header and the content on Our Story and then on the policy, account, auth, order, contact, checkout and 404 pages | One `--page-top-space` token for every page; Home keeps its full-width hero |
+
+### Publishing
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| D25 | `git commit` fails with "Author identity unknown" | No git name and email set on the machine | Set `user.name` and `user.email` for this repository only (`git config`, no `--global`) |
+| D26 | `git push` fails with `HTTP 400` / "remote end hung up" | The pack (about 23 MB, mostly brand images) is larger than git's default HTTP buffer | `git config http.postBuffer 157286400` for this repository |
+| D27 | Work pushed to the wrong repository | `origin` points at the template repository | Add the target as its own remote (for example `auth`) and push `main` to it; leave `origin` alone |
+
+## Phase 2a Definition of Done
+
+The Phase 1 and Phase 2 Definitions of Done still apply. Phase 2a is done when every check below passes. The `D` numbers refer to the debug log.
+
+**Build and tooling**
+
+- [ ] `npm run check` reports 0 errors and `npm run build` succeeds (D14).
+- [ ] `npm run test:unit`, `npm run db:test` and `npm run test:integration` all pass, run only after every Supabase container reports healthy (D11, D12, D13, D15).
+- [ ] `npm run db:types` was run after the last migration, and `database.types.ts` includes `p_tax_cents`.
+
+**Environment and Supabase**
+
+- [ ] Port 4321 is free and `npm run dev` serves on 4321. If the port is taken, startup fails instead of moving (D2).
+- [ ] `.env` has exactly one active `SUPABASE_URL`, and its keys belong to that project (D6). You know whether it names the local stack or a hosted project, and where users and emails will appear (D1).
+- [ ] For a hosted project, `npm run db:connect -- --seed` completed. The dashboard shows Site URL `http://localhost:4321` (or the production domain), the `/account/confirm` redirect URLs, and minimum password length 8, not Supabase's defaults (D3, D4).
+- [ ] Migrations ran before the first sign-up, and every `auth.users` row has a `profiles` row (D5).
+
+**Auth emails**
+
+- [ ] Sign-up, password reset and magic-link emails all land on `/account/confirm` and finish on the intended page, with both the `?token_hash=` and the `?code=` link styles (D4).
+- [ ] A `?code=` link opened in a different browser shows the expired-or-other-browser message, not an error page (D7).
+- [ ] Before inviting anyone outside the Supabase organization, custom SMTP is configured and the branded templates are pushed.
+
+**Session and security**
+
+- [ ] On a prerendered page, the signed-in header shows the user's first name with an account menu that has sign-out, on desktop and mobile; it closes with Escape, an outside click and tabbing away (D8).
+- [ ] `/api/session` returns only the caller's identity and sends `Cache-Control: private, no-store` (D8).
+- [ ] Sign-in returns to the page the visitor started from, including after sign-up and email confirmation (D8).
+- [ ] All nine open-redirect payloads in `auth.test.mjs` stay on the site (D9).
+- [ ] Customer A cannot read customer B's orders or profile, a forged or signed-out cookie gets no session, and customers get "not found" on `/admin`.
+
+**Bag**
+
+- [ ] User 1 adds to the bag and signs out: the bag is empty for the signed-out visitor and for user 2 (D10).
+- [ ] A session that ends without sign-out also empties the bag, and a different account signing in over an old session empties it (D10).
+- [ ] A guest bag carries over to the account that signs in, and the owner keeps their bag across page loads (D10).
+
+**Commerce** (still to be done end to end with a Stripe test key)
+
+- [ ] The Phase 2 Stripe test-mode matrix passes with a real test key and `npm run stripe:listen`.
+- [ ] One Pumpkin Chai shows subtotal $24, shipping $6, sales tax (3.25%) $0.78, total $30.78 in the bag and on the pending order, and Stripe charges the same tax.
+- [ ] `npm run check:launch` lists only the processing time and the statement descriptor until those are confirmed, then passes.
+
+**Layout regressions**
+
+- [ ] D17–D24 still hold at 320, 375, 390, 430, 768 and 1440px. There is no horizontal overflow, and every page with a header starts `--page-top-space` below it.
+
+**Publishing**
+
+- [ ] The commit has an author identity, the push to the intended remote succeeds, and no `.env` or secret is in the commit (D25–D27).
