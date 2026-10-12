@@ -1,0 +1,64 @@
+---
+import BrandPicture from './BrandPicture.astro';
+import Button from './Button.astro';
+import type { Collection } from '../data/types';
+
+interface Props {
+  collection: Collection;
+}
+
+const { collection } = Astro.props;
+---
+
+<section class="hero" aria-labelledby="hero-heading">
+  <BrandPicture
+    src={collection.heroImage.src}
+    alt={collection.heroImage.alt}
+    ratio="campaign"
+    sizes="100vw"
+    priority
+    class="hero-media"
+  />
+  <div class="hero-copy">
+    <div class="container">
+      <div class="hero-text">
+        <p class="eyebrow">{collection.name}</p>
+        <h1 id="hero-heading" class="display">{collection.tagline}</h1>
+        <p class="lead">{collection.heroIntro}</p>
+        <Button href={collection.route}>Shop the collection</Button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero { position: relative; }
+
+  .hero-copy { padding-block: 2.5rem 3.5rem; }
+
+  .hero-text {
+    display: grid;
+    justify-items: start;
+    gap: 1.25rem;
+    max-width: 34rem;
+  }
+
+  .hero-text .lead { margin-bottom: 0.75rem; }
+
+  @media (min-width: 1024px) {
+    .hero-copy {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      padding: 0;
+    }
+
+    .hero-copy .container { width: 100%; }
+
+    /* Keep the copy inside the photo's clean left-side negative space. */
+    .hero-text { max-width: min(26rem, 30vw); }
+
+    .hero-text h1 { font-size: clamp(2.75rem, 1.5rem + 2.6vw, 4rem); }
+  }
+</style>

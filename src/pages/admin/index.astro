@@ -1,0 +1,212 @@
+---
+// Admin overview: what needs doing now. Guarded by src/middleware.ts (admin role only).
+import '../../styles/admin.css';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import AdminNav from '../../components/AdminNav.astro';
+import { getProduct } from '../../data/catalog';
+import { field } from '../../lib/server/forms';
+import { getServiceClient } from '../../lib/server/supabase';
+
+export const prerender = false;
+
+const supabase = Astro.locals.supabase!;
+const admin = Astro.locals.user!;
+let alert = '';
+
+// Deleting an account needs the Auth admin API (service role). Orders stay, detached from the account.
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const userId = field(form, 'user_id');
+  const { data: profile } = await supabase.from('profiles').select('deletion_requested_at').eq('id', userId).maybeSingle();
+  if (field(form, 'intent') !== 'delete_user' || field(form, 'confirm') !== 'yes') {
+    alert = 'Tick the confirmation box to delete the account.';
+  } else if (!profile?.deletion_requested_at) {
+    alert = 'Only accounts that requested deletion can be deleted here.';
+  } else if (userId === admin.id) {
+    alert = "You can't delete your own account here.";
+  } else {
+    const { error } = await getServiceClient().auth.admin.deleteUser(userId);
+    if (!error) return Astro.redirect('/admin?done=deleted', 303);
+    alert = `The account couldn't be deleted: ${error.message}`;
+  }
+}
+
+const [toFulfil, attention, inventory, deletionRequests] = await Promise.all([
+  supabase.from('orders').select('id', { count: 'exact', head: true }).in('status', ['paid', 'partially_refunded']),
+  supabase.from('orders').select('number, status, created_at').eq('needs_attention', true).order('created_at'),
+  supabase.from('inventory').select('product_slug, on_hand, reserved, low_stock_threshold'),
+  supabase.from('profiles').select('id, full_name, deletion_requested_at').not('deletion_requested_at', 'is', null),
+]);
+
+const lowStock = (inventory.data ?? []).filter((row) => row.on_hand - row.reserved <= row.low_stock_threshold);
+const service = getServiceClient();
+const requests = await Promise.all(
+  (deletionRequests.data ?? []).map(async (profile) => {
+    const { data } = await service.auth.admin.getUserById(profile.id);
+    return { ...profile, email: data.user?.email ?? '—' };
+  }),
+);
+const dateFormat = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
+const done = Astro.url.searchParams.get('done') === 'deleted';
+---
+
+<BaseLayout title="Admin" description="NATH & JAID admin." noindex newsletter={false}>
+  <section class="admin">
+    <div class="container overview">
+      <AdminNav />
+      <h1>Overview</h1>
+      {done && <p class="admin-notice" role="status">The account was deleted. Its orders remain, detached from the account.</p>}
+      {alert && <p class="admin-alert" role="alert">{alert}</p>}
+
+      <div class="stats">
+        <a class="stat" href="/admin/orders?status=paid">
+          <span class="stat-value">{toFulfil.count ?? 0}</span>
+          <span class="stat-label">Orders to ship</span>
+        </a>
+        <a class="stat" href="#attention">
+          <span class="stat-value">{attention.data?.length ?? 0}</span>
+          <span class="stat-label">Need attention</span>
+        </a>
+        <a class="stat" href="/admin/inventory">
+          <span class="stat-value">{lowStock.length}</span>
+          <span class="stat-label">Low or sold out</span>
+        </a>
+        <a class="stat" href="#deletions">
+          <span class="stat-value">{requests.length}</span>
+          <span class="stat-label">Deletion requests</span>
+        </a>
+      </div>
+
+      <section id="attention" aria-labelledby="attention-heading" class="block">
+        <h2 id="attention-heading">Needs attention</h2>
+        {
+          attention.data?.length ? (
+            <ul class="plain-list">
+              {attention.data.map((order) => (
+                <li>
+                  <a class="inline-link" href={`/admin/orders/${order.number}`}>{order.number}</a> · {order.status} ·{' '}
+                  {dateFormat.format(new Date(order.created_at))}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="muted">Nothing flagged. Disputes and payments after an expired checkout appear here.</p>
+          )
+        }
+      </section>
+
+      <section aria-labelledby="stock-heading" class="block">
+        <h2 id="stock-heading">Low stock</h2>
+        {
+          lowStock.length ? (
+            <ul class="plain-list">
+              {lowStock.map((row) => (
+                <li>
+                  {getProduct(row.product_slug)?.name ?? row.product_slug}: {row.on_hand - row.reserved} available
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="muted">Every candle is above its low-stock threshold.</p>
+          )
+        }
+      </section>
+
+      <section id="deletions" aria-labelledby="deletions-heading" class="block">
+        <h2 id="deletions-heading">Account deletion requests</h2>
+        {
+          requests.length ? (
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr><th>Email</th><th>Name</th><th>Requested</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  {requests.map((request) => (
+                    <tr>
+                      <td>{request.email}</td>
+                      <td>{request.full_name ?? '—'}</td>
+                      <td>{dateFormat.format(new Date(request.deletion_requested_at!))}</td>
+                      <td>
+                        <form method="post" class="inline-form">
+                          <input type="hidden" name="intent" value="delete_user" />
+                          <input type="hidden" name="user_id" value={request.id} />
+                          <label class="check">
+                            <input type="checkbox" name="confirm" value="yes" required /> Confirm
+                          </label>
+                          <button type="submit" class="btn">Delete account</button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p class="muted">No open requests.</p>
+          )
+        }
+      </section>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .overview {
+    display: grid;
+    gap: 2rem;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+
+  .stat {
+    display: grid;
+    gap: 0.25rem;
+    padding: 1.25rem;
+    background: var(--color-soft-ivory);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .stat:hover .stat-label {
+    text-decoration: underline;
+    text-decoration-color: var(--color-warm-gold);
+  }
+
+  .stat-value {
+    font-family: var(--font-serif);
+    font-size: var(--fs-h2);
+    line-height: 1;
+    color: var(--color-evergreen);
+  }
+
+  .stat-label { font-size: var(--fs-small); }
+
+  .block {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .plain-list {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .inline-form {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .inline-form .btn { min-height: 2.5rem; padding: 0.5rem 1rem; }
+</style>

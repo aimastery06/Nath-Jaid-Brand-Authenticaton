@@ -1,0 +1,71 @@
+---
+import Button from './Button.astro';
+import { formatPrice } from '../data/catalog';
+import { bagLink } from '../data/navigation';
+import type { Product } from '../data/types';
+
+interface Props {
+  product: Product;
+}
+
+const { product } = Astro.props;
+---
+
+<div class="add-to-bag" data-add-to-bag data-slug={product.slug} data-name={product.name}>
+  <Button block data-add-button>Add to bag — {formatPrice(product.price)}</Button>
+  <p class="confirmation" role="status" data-confirmation>
+    <span data-confirmation-text></span>
+    <a href={bagLink.href} class="text-link" data-view-bag hidden>View bag</a>
+  </p>
+</div>
+
+<script>
+  import { MAX_QUANTITY, addToBag, readBag } from '../scripts/bag';
+  import { loadStock, stockCopy } from '../scripts/stock';
+
+  document.querySelectorAll<HTMLElement>('[data-add-to-bag]').forEach((root) => {
+    const slug = root.dataset.slug ?? '';
+    const name = root.dataset.name ?? '';
+    const button = root.querySelector<HTMLButtonElement>('[data-add-button]');
+    const text = root.querySelector<HTMLElement>('[data-confirmation-text]');
+    const viewBag = root.querySelector<HTMLElement>('[data-view-bag]');
+
+    loadStock().then((stock) => {
+      if (!button || !text) return;
+      if (stock[slug] === 'sold_out') {
+        button.disabled = true;
+        button.textContent = stockCopy.sold_out;
+      } else if (stock[slug] === 'low' && !text.textContent) {
+        text.textContent = stockCopy.low;
+      }
+    });
+
+    button?.addEventListener('click', () => {
+      const before = readBag()[slug] ?? 0;
+      const after = addToBag(slug);
+      if (text) {
+        text.textContent =
+          after > before
+            ? `${name} is in your bag (${after}).`
+            : `You have the maximum of ${MAX_QUANTITY} ${name} candles in your bag.`;
+      }
+      if (viewBag) viewBag.hidden = false;
+    });
+  });
+</script>
+
+<style>
+  .add-to-bag {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .confirmation {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 1rem;
+    min-height: 1.5rem;
+    font-size: var(--fs-small);
+  }
+</style>

@@ -1,0 +1,51 @@
+---
+import type { SharedSpecs } from '../data/types';
+
+interface Props {
+  specs: SharedSpecs;
+  vessel: string;
+}
+
+const { specs, vessel } = Astro.props;
+const rows: [string, string][] = [
+  ['Type', specs.type],
+  ['Size', specs.size],
+  ['Burn time', specs.burnTime],
+  ['Wax', specs.wax],
+  ['Wicks', specs.wicks],
+  ['Vessel', vessel],
+];
+---
+
+<dl class="specs">
+  {
+    rows.map(([label, value]) => (
+      <div class="spec">
+        <dt>{label}</dt>
+        <dd>{value}</dd>
+      </div>
+    ))
+  }
+</dl>
+
+<style>
+  .specs { display: grid; }
+
+  .spec {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 1rem;
+    padding-block: 0.75rem;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: 0.9375rem;
+  }
+
+  .spec:first-child { border-top: 1px solid var(--color-rule); }
+
+  dt {
+    font-weight: 500;
+    color: var(--color-evergreen);
+  }
+
+  dd { margin: 0; }
+</style>

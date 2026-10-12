@@ -1,0 +1,131 @@
+---
+import { activeCollection, getCollectionProducts, productHref } from '../data/catalog';
+import { company } from '../data/company';
+import { accountLink, bagLink, socialLinks } from '../data/navigation';
+import { policies, policyHref } from '../data/policies';
+
+const products = getCollectionProducts(activeCollection);
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer on-dark">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="footer-logo">
+          <img src="/brand/logo-footer.svg" alt={`${company.name} — Home`} width="950" height="216" loading="lazy" />
+        </a>
+        <p class="footer-tagline serif">{company.tagline}</p>
+      </div>
+
+      <nav aria-labelledby="footer-shop">
+        <h2 id="footer-shop" class="eyebrow">Shop</h2>
+        <ul>
+          <li><a href={activeCollection.route}>{activeCollection.name}</a></li>
+          {products.map((p) => <li><a href={productHref(p)}>{p.name}</a></li>)}
+        </ul>
+      </nav>
+
+      <nav aria-labelledby="footer-brand">
+        <h2 id="footer-brand" class="eyebrow">{company.name}</h2>
+        <ul>
+          <li><a href="/about">Our Story</a></li>
+          <li><a href="/contact">Contact</a></li>
+          <li><a href={`mailto:${company.email}`}>{company.email}</a></li>
+          <li><a href={bagLink.href}>{bagLink.label}</a></li>
+        </ul>
+      </nav>
+
+      <nav aria-labelledby="footer-help">
+        <h2 id="footer-help" class="eyebrow">Help</h2>
+        <ul>
+          {policies.map((policy) => <li><a href={policyHref(policy.slug)}>{policy.title}</a></li>)}
+          <li><a href={accountLink.href}>{accountLink.label}</a></li>
+        </ul>
+      </nav>
+
+      <nav aria-labelledby="footer-follow">
+        <h2 id="footer-follow" class="eyebrow">Follow</h2>
+        <ul>
+          {
+            socialLinks.map((link) => (
+              <li>
+                <a href={link.href} target="_blank" rel="noopener noreferrer">
+                  {link.label}
+                  <span class="sr-only"> (opens in a new tab)</span>
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </nav>
+    </div>
+
+    <p class="copyright">© {year} {company.name}. {company.descriptor}.</p>
+  </div>
+</footer>
+
+<style>
+  .site-footer { padding-block: clamp(3.5rem, 3rem + 3vw, 5.5rem) 2rem; }
+
+  .footer-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2.5rem 1.5rem;
+  }
+
+  .footer-brand { grid-column: 1 / -1; }
+
+  .footer-logo {
+    display: inline-block;
+    max-width: 15rem;
+  }
+
+  .footer-tagline {
+    margin-top: 1.25rem;
+    font-size: 1.375rem;
+    color: var(--color-warm-cream);
+  }
+
+  .footer-grid h2 { margin-bottom: 1rem; }
+
+  .footer-grid ul {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .footer-grid ul a {
+    display: inline-block;
+    padding-block: 0.3rem;
+    font-size: 0.9375rem;
+    color: var(--color-warm-cream);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .footer-grid ul a:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--color-warm-gold);
+    text-underline-offset: 0.25em;
+  }
+
+  .copyright {
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-rule-on-dark);
+    font-size: 0.8125rem;
+    color: color-mix(in srgb, var(--color-warm-cream) 78%, var(--color-evergreen));
+  }
+
+  @media (min-width: 768px) {
+    .footer-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+
+  @media (min-width: 1100px) {
+    .footer-grid { grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)); }
+
+    .footer-brand { grid-column: auto; }
+  }
+</style>

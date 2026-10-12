@@ -1,0 +1,75 @@
+---
+// Policies from brand/policies/. Drafts show a visible note until approved there.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { policies, type Policy } from '../../data/policies';
+import { company } from '../../data/company';
+
+export function getStaticPaths() {
+  return policies.map((policy) => ({ params: { slug: policy.slug }, props: { policy } }));
+}
+
+interface Props {
+  policy: Policy;
+}
+
+const { policy } = Astro.props;
+const { Content } = policy;
+const updated = new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(policy.updated));
+---
+
+<BaseLayout title={policy.title} description={policy.description}>
+  <article class="policy section">
+    <div class="container policy-inner">
+      <header class="policy-header">
+        <p class="eyebrow">Policies</p>
+        <h1>{policy.title}</h1>
+        {
+          policy.status === 'draft' ? (
+            <p class="draft-note">
+              This policy is still being finalised. Questions? Write to{' '}
+              <a class="inline-link" href={`mailto:${company.email}`}>{company.email}</a>.
+            </p>
+          ) : (
+            <p class="muted">Last updated {updated}</p>
+          )
+        }
+      </header>
+      <div class="prose policy-body">
+        <Content />
+      </div>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .policy-inner {
+    display: grid;
+    gap: clamp(2rem, 1.5rem + 2vw, 3rem);
+    max-width: 46rem;
+  }
+
+  .policy-header {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .draft-note {
+    padding: 1rem 1.25rem;
+    border-left: 2px solid var(--color-warm-gold);
+    background: var(--color-soft-ivory);
+    font-size: var(--fs-small);
+  }
+
+  .policy-body :global(h2) {
+    margin-top: 2.25rem;
+    font-size: var(--fs-h3);
+  }
+
+  .policy-body :global(ul) { padding-left: 1.25rem; }
+
+  .policy-body :global(a) {
+    color: var(--color-evergreen);
+    text-decoration-color: var(--color-warm-gold);
+    text-underline-offset: 0.2em;
+  }
+</style>

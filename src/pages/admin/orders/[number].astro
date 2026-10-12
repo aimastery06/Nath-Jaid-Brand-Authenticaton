@@ -1,0 +1,336 @@
+---
+// Admin order detail: fulfil, cancel (full refund + restock), refund, notes. Every action is logged to order_events.
+import '../../../styles/admin.css';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import AdminNav from '../../../components/AdminNav.astro';
+import OrderSummary from '../../../components/OrderSummary.astro';
+import { orderStatusCopy } from '../../../data/order-status';
+import { formatCents, toCents } from '../../../lib/commerce';
+import { env } from '../../../lib/server/env';
+import { field } from '../../../lib/server/forms';
+import { getStripe } from '../../../lib/server/stripe';
+
+export const prerender = false;
+
+const supabase = Astro.locals.supabase!;
+const { number } = Astro.params;
+const self = `/admin/orders/${number}`;
+
+const loadOrder = () =>
+  supabase
+    .from('orders')
+    .select('*, order_items(product_slug, name, unit_price_cents, quantity), order_events(id, type, data, created_at)')
+    .eq('number', number ?? '')
+    .order('created_at', { referencedTable: 'order_events', ascending: false })
+    .maybeSingle();
+
+let { data: order } = await loadOrder();
+let alert = '';
+
+// Database errors raised by the admin_* functions, in plain words.
+const reasons: Record<string, string> = {
+  order_not_fulfillable: 'Only paid orders can be marked shipped.',
+  tracking_required: 'Enter both the carrier and the tracking number.',
+  order_not_cancellable: 'Only paid orders that have not shipped can be cancelled.',
+  order_not_restockable: 'Only paid orders can be restocked.',
+  note_required: 'Write a note first.',
+};
+const explain = (message: string) => reasons[message] ?? `Something went wrong: ${message}`;
+
+if (Astro.request.method === 'POST' && order) {
+  const form = await Astro.request.formData();
+  const intent = field(form, 'intent');
+  const confirmed = field(form, 'confirm') === 'yes';
+  const remaining = order.total_cents - order.amount_refunded_cents;
+
+  try {
+    if (intent === 'fulfil') {
+      const { error } = await supabase.rpc('admin_fulfil_order', {
+        p_order_id: order.id,
+        p_carrier: field(form, 'carrier'),
+        p_tracking_number: field(form, 'tracking_number'),
+      });
+      if (error) throw new Error(error.message);
+      return Astro.redirect(`${self}?done=fulfilled`, 303);
+    }
+
+    if (intent === 'cancel') {
+      if (!confirmed) throw new Error('Tick the confirmation box to cancel and refund.');
+      if (order.status !== 'paid' || !order.stripe_payment_intent_id) throw new Error('order_not_cancellable');
+      // Refund first: an order is never marked cancelled unless the money is on its way back.
+      const refund = await getStripe().refunds.create(
+        { payment_intent: order.stripe_payment_intent_id, reason: 'requested_by_customer', metadata: { order_number: order.number } },
+        { idempotencyKey: `cancel-${order.id}` },
+      );
+      const { error } = await supabase.rpc('admin_cancel_order', { p_order_id: order.id, p_refund_id: refund.id });
+      if (error) throw new Error(error.message);
+      return Astro.redirect(`${self}?done=cancelled`, 303);
+    }
+
+    if (intent === 'refund') {
+      if (!confirmed) throw new Error('Tick the confirmation box to send the refund.');
+      if (!order.stripe_payment_intent_id) throw new Error('This order has no payment to refund.');
+      const amount = toCents(Number.parseFloat(field(form, 'amount')));
+      if (!Number.isFinite(amount) || amount <= 0 || amount > remaining) {
+        throw new Error(`Enter an amount between $0.01 and ${formatCents(remaining)}.`);
+      }
+      const refund = await getStripe().refunds.create(
+        { payment_intent: order.stripe_payment_intent_id, amount, metadata: { order_number: order.number } },
+        { idempotencyKey: `refund-${order.id}-${order.amount_refunded_cents}-${amount}` },
+      );
+      const { error } = await supabase.rpc('admin_log_refund', {
+        p_order_id: order.id,
+        p_refund_id: refund.id,
+        p_amount_cents: amount,
+        p_restock: field(form, 'restock') === 'yes',
+      });
+      if (error) throw new Error(error.message);
+      return Astro.redirect(`${self}?done=refunded`, 303);
+    }
+
+    if (intent === 'restock') {
+      const { error } = await supabase.rpc('admin_restock_order', { p_order_id: order.id });
+      if (error) throw new Error(error.message);
+      return Astro.redirect(`${self}?done=restocked`, 303);
+    }
+
+    if (intent === 'note') {
+      const { error } = await supabase.rpc('admin_add_note', { p_order_id: order.id, p_note: field(form, 'note') });
+      if (error) throw new Error(error.message);
+      return Astro.redirect(`${self}?done=note`, 303);
+    }
+
+    if (intent === 'resolve') {
+      const { error } = await supabase.rpc('admin_resolve_attention', { p_order_id: order.id });
+      if (error) throw new Error(error.message);
+      return Astro.redirect(`${self}?done=resolved`, 303);
+    }
+  } catch (error) {
+    alert = explain(error instanceof Error ? error.message : String(error));
+    ({ data: order } = await loadOrder());
+  }
+}
+
+if (!order) Astro.response.status = 404;
+
+const notices: Record<string, string> = {
+  fulfilled: 'Marked as shipped.',
+  cancelled: 'Cancelled, refunded in full, and returned to stock.',
+  refunded: 'Refund sent to Stripe. The status updates when Stripe confirms it.',
+  restocked: 'Items returned to stock.',
+  note: 'Note added.',
+  resolved: 'Marked as resolved.',
+};
+const notice = notices[Astro.url.searchParams.get('done') ?? ''];
+
+const dateTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+const address = (order?.shipping_address ?? null) as Record<string, string | null> | null;
+const remaining = order ? order.total_cents - order.amount_refunded_cents : 0;
+const canFulfil = order && ['paid', 'partially_refunded'].includes(order.status);
+const canCancel = order?.status === 'paid';
+const canRefund = order && ['paid', 'fulfilled', 'partially_refunded'].includes(order.status) && remaining > 0;
+const canRestock = order && order.paid_at && !order.restocked_at && ['refunded', 'partially_refunded'].includes(order.status);
+const stripeDashboard = env.stripeSecretKey.startsWith('sk_test')
+  ? 'https://dashboard.stripe.com/test/payments/'
+  : 'https://dashboard.stripe.com/payments/';
+---
+
+<BaseLayout title={`${number} · Admin`} description="NATH & JAID order." noindex newsletter={false}>
+  <section class="admin">
+    <div class="container">
+      <AdminNav />
+      {
+        !order ? (
+          <h1>No order {number}.</h1>
+        ) : (
+          <div class="detail">
+            <header class="detail-header">
+              <p><a class="inline-link" href="/admin/orders">← Orders</a></p>
+              <h1>{order.number}</h1>
+              <p>
+                <strong>{orderStatusCopy[order.status].label}</strong> · placed {dateTime.format(new Date(order.created_at))}
+                {order.needs_attention && <span class="flag">Attention</span>}
+              </p>
+              {notice && <p class="admin-notice" role="status">{notice}</p>}
+              {alert && <p class="admin-alert" role="alert">{alert}</p>}
+            </header>
+
+            <div class="columns">
+              <div class="main">
+                <OrderSummary
+                  items={order.order_items}
+                  subtotalCents={order.subtotal_cents}
+                  shippingCents={order.shipping_cents}
+                  taxCents={order.tax_cents}
+                  totalCents={order.total_cents}
+                  refundedCents={order.amount_refunded_cents}
+                />
+
+                <section aria-labelledby="timeline-heading" class="panel">
+                  <h2 id="timeline-heading">Timeline</h2>
+                  <ol class="timeline">
+                    {order.order_events.map((event) => (
+                      <li>
+                        <span class="muted">{dateTime.format(new Date(event.created_at))}</span> — {event.type.replaceAll('_', ' ')}
+                        {event.type === 'note' && <q>{(event.data as { note?: string }).note}</q>}
+                      </li>
+                    ))}
+                  </ol>
+                  <form method="post" class="admin-form">
+                    <input type="hidden" name="intent" value="note" />
+                    <div class="field">
+                      <label for="note">Add a note</label>
+                      <textarea id="note" name="note" class="input" rows="2" maxlength="2000" required></textarea>
+                    </div>
+                    <div><button type="submit" class="btn">Add note</button></div>
+                  </form>
+                </section>
+              </div>
+
+              <aside class="side">
+                <section aria-labelledby="customer-heading" class="panel">
+                  <h2 id="customer-heading">Customer</h2>
+                  <p>{order.email ?? '—'}</p>
+                  <p class="muted">{order.user_id ? 'Has an account' : 'Guest checkout'}</p>
+                  {address && (
+                    <address>
+                      {[order.shipping_name, address.line1, address.line2, [address.city, address.state, address.postal_code].filter(Boolean).join(', '), address.country]
+                        .filter(Boolean)
+                        .map((line) => (
+                          <>
+                            {line}
+                            <br />
+                          </>
+                        ))}
+                    </address>
+                  )}
+                  {order.stripe_payment_intent_id && (
+                    <p>
+                      <a class="inline-link" href={`${stripeDashboard}${order.stripe_payment_intent_id}`} target="_blank" rel="noopener noreferrer">
+                        View payment in Stripe<span class="sr-only"> (opens in a new tab)</span>
+                      </a>
+                    </p>
+                  )}
+                  {order.status === 'fulfilled' && (
+                    <p>
+                      Shipped {order.fulfilled_at && dateTime.format(new Date(order.fulfilled_at))} · {order.carrier} {order.tracking_number}
+                    </p>
+                  )}
+                </section>
+
+                {order.needs_attention && (
+                  <form method="post" class="panel admin-form">
+                    <input type="hidden" name="intent" value="resolve" />
+                    <p>Check the timeline and Stripe, then mark this resolved.</p>
+                    <div><button type="submit" class="btn">Mark resolved</button></div>
+                  </form>
+                )}
+
+                {canFulfil && (
+                  <form method="post" class="panel admin-form" aria-labelledby="ship-heading">
+                    <h2 id="ship-heading">Mark shipped</h2>
+                    <input type="hidden" name="intent" value="fulfil" />
+                    <div class="field">
+                      <label for="carrier">Carrier</label>
+                      <input id="carrier" name="carrier" class="input" required list="carriers" />
+                      <datalist id="carriers">
+                        <option value="USPS" />
+                        <option value="UPS" />
+                        <option value="FedEx" />
+                      </datalist>
+                    </div>
+                    <div class="field">
+                      <label for="tracking_number">Tracking number</label>
+                      <input id="tracking_number" name="tracking_number" class="input" required />
+                    </div>
+                    <div><button type="submit" class="btn">Mark shipped</button></div>
+                  </form>
+                )}
+
+                {canRefund && (
+                  <form method="post" class="panel admin-form" aria-labelledby="refund-heading">
+                    <h2 id="refund-heading">Refund</h2>
+                    <input type="hidden" name="intent" value="refund" />
+                    <div class="field">
+                      <label for="amount">Amount (up to {formatCents(remaining)})</label>
+                      <input id="amount" name="amount" class="input" type="number" min="0.01" step="0.01" max={(remaining / 100).toFixed(2)} value={(remaining / 100).toFixed(2)} required />
+                    </div>
+                    <label class="check"><input type="checkbox" name="restock" value="yes" /> Return the items to stock</label>
+                    <label class="check"><input type="checkbox" name="confirm" value="yes" required /> I want to send this refund</label>
+                    <div><button type="submit" class="btn">Send refund</button></div>
+                  </form>
+                )}
+
+                {canCancel && (
+                  <form method="post" class="panel admin-form" aria-labelledby="cancel-heading">
+                    <h2 id="cancel-heading">Cancel order</h2>
+                    <input type="hidden" name="intent" value="cancel" />
+                    <p class="muted">Refunds {formatCents(order.total_cents)} in full and returns the items to stock.</p>
+                    <label class="check"><input type="checkbox" name="confirm" value="yes" required /> I want to cancel and refund this order</label>
+                    <div><button type="submit" class="btn">Cancel and refund</button></div>
+                  </form>
+                )}
+
+                {canRestock && (
+                  <form method="post" class="panel admin-form">
+                    <input type="hidden" name="intent" value="restock" />
+                    <p>Refunded items haven't been returned to stock.</p>
+                    <div><button type="submit" class="btn">Return items to stock</button></div>
+                  </form>
+                )}
+              </aside>
+            </div>
+          </div>
+        )
+      }
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .detail {
+    display: grid;
+    gap: 2rem;
+  }
+
+  .detail-header {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .flag { margin-left: 0.5rem; }
+
+  .columns {
+    display: grid;
+    gap: 2rem;
+  }
+
+  @media (min-width: 960px) {
+    .columns { grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 1fr); align-items: start; }
+  }
+
+  .main,
+  .side {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .panel {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--color-soft-ivory);
+  }
+
+  .timeline {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0;
+    list-style: none;
+    font-size: var(--fs-small);
+  }
+
+  .timeline q { display: block; margin-top: 0.15rem; }
+
+  address { font-style: normal; }
+</style>

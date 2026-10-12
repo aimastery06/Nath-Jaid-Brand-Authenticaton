@@ -1,0 +1,29 @@
+---
+// Shown in place of account, checkout, and admin pages while commerce isn't configured.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Button from '../../components/Button.astro';
+import { activeCollection } from '../../data/catalog';
+import { company } from '../../data/company';
+---
+
+<BaseLayout title="Checkout unavailable" description="Checkout is temporarily unavailable." noindex>
+  <section class="unavailable section">
+    <div class="container">
+      <h1>Checkout is resting for a moment.</h1>
+      <p class="lead muted">Please try again shortly. Your bag is saved on this device.</p>
+      <p>
+        Need a hand? Write to <a class="inline-link" href={`mailto:${company.email}`}>{company.email}</a>.
+      </p>
+      <Button href={activeCollection.route}>Explore the collection</Button>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .unavailable .container {
+    display: grid;
+    justify-items: start;
+    gap: 1.25rem;
+    padding-block: clamp(2rem, 4vw, 4rem);
+  }
+</style>

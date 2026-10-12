@@ -1,0 +1,27 @@
+---
+import type { HTMLAttributes } from 'astro/types';
+
+type Props = {
+  href?: string;
+  /** Use on Evergreen sections: Cream fill with an Evergreen label. */
+  onDark?: boolean;
+  block?: boolean;
+  class?: string;
+} & Omit<HTMLAttributes<'button'>, 'class'> &
+  Omit<HTMLAttributes<'a'>, 'class' | 'type'>;
+
+const { href, onDark = false, block = false, class: className, type = 'button', ...rest } = Astro.props;
+const classes = ['btn', { 'btn--on-dark': onDark, 'btn--block': block }, className];
+---
+
+{
+  href ? (
+    <a href={href} class:list={classes} {...rest}>
+      <slot />
+    </a>
+  ) : (
+    <button type={type} class:list={classes} {...rest}>
+      <slot />
+    </button>
+  )
+}

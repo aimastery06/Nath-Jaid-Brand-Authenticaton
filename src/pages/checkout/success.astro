@@ -1,0 +1,124 @@
+---
+// Order confirmation after Stripe Checkout. Reads the order only; the webhook marks it paid.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Button from '../../components/Button.astro';
+import OrderSummary from '../../components/OrderSummary.astro';
+import TextLink from '../../components/TextLink.astro';
+import { activeCollection } from '../../data/catalog';
+import { getServiceClient } from '../../lib/server/supabase';
+
+export const prerender = false;
+
+const sessionId = Astro.url.searchParams.get('session_id') ?? '';
+const { user } = Astro.locals;
+
+// The unguessable Checkout Session ID is the guest's key to this page, so read with the service role
+// and show only what the confirmation needs (no address).
+const { data: order } = /^cs_[A-Za-z0-9_]+$/.test(sessionId)
+  ? await getServiceClient()
+      .from('orders')
+      .select(
+        'number, status, email, user_id, subtotal_cents, shipping_cents, tax_cents, total_cents, order_items(product_slug, name, unit_price_cents, quantity)',
+      )
+      .eq('stripe_checkout_session_id', sessionId)
+      .maybeSingle()
+  : { data: null };
+
+const confirming = order?.status === 'pending_payment';
+const confirmed = order && !confirming && order.status !== 'expired';
+const isGuest = order && !order.user_id && !user;
+if (!order) Astro.response.status = 404;
+---
+
+<BaseLayout title="Thank you" description="Your NATH & JAID order confirmation." noindex>
+  <section class="confirmation section">
+    <div class="container confirmation-inner">
+      {
+        !order ? (
+          <header class="confirmation-header">
+            <h1>We couldn't find that order.</h1>
+            <p class="lead muted">
+              If you've just paid, your receipt is on its way to your email. Questions? Write to us from the Contact page.
+            </p>
+          </header>
+        ) : (
+          <>
+            <header class="confirmation-header">
+              <p class="eyebrow">Order {order.number}</p>
+              <h1>Thank you. Your candles are on their way to you soon.</h1>
+              <p class="lead muted" role="status" data-confirming={confirming ? '' : undefined}>
+                {confirming
+                  ? "We're confirming your payment. This page will update in a moment."
+                  : `A receipt is on its way to ${order.email ?? 'your email'}.`}
+              </p>
+            </header>
+
+            <OrderSummary
+              items={order.order_items}
+              subtotalCents={order.subtotal_cents}
+              shippingCents={order.shipping_cents}
+              taxCents={order.tax_cents}
+              totalCents={order.total_cents}
+            />
+
+            {isGuest && confirmed && (
+              <aside class="guest-prompt" aria-labelledby="guest-heading">
+                <h2 id="guest-heading" class="guest-heading">Create an account to keep track of this order and the next one.</h2>
+                <Button href={`/account/sign-up?email=${encodeURIComponent(order.email ?? '')}`}>Create an account</Button>
+              </aside>
+            )}
+
+            {user && confirmed && <TextLink href={`/account/orders/${order.number}`}>View this order</TextLink>}
+          </>
+        )
+      }
+      <TextLink href={activeCollection.route}>Back to the collection</TextLink>
+    </div>
+  </section>
+
+  {order && order.status !== 'expired' && <span hidden data-clear-bag></span>}
+</BaseLayout>
+
+<script>
+  import { clearBag } from '../../scripts/bag';
+
+  // Payment went through Stripe, so the bag has done its job.
+  if (document.querySelector('[data-clear-bag]')) clearBag();
+
+  // While the webhook is still on its way, check again a few times.
+  if (document.querySelector('[data-confirming]')) {
+    const url = new URL(location.href);
+    const attempts = Number(url.searchParams.get('attempt') ?? 0);
+    if (attempts < 6) {
+      url.searchParams.set('attempt', String(attempts + 1));
+      setTimeout(() => location.replace(url), 2500);
+    }
+  }
+</script>
+
+<style>
+  .confirmation-inner {
+    display: grid;
+    justify-items: start;
+    gap: 2rem;
+    max-width: 44rem;
+  }
+
+  .confirmation-inner > :global(.order-summary) { width: 100%; }
+
+  .confirmation-header {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .guest-prompt {
+    display: grid;
+    justify-items: start;
+    gap: 1.25rem;
+    width: 100%;
+    padding: 1.75rem;
+    background: var(--color-soft-ivory);
+  }
+
+  .guest-heading { font-size: var(--fs-h3); }
+</style>

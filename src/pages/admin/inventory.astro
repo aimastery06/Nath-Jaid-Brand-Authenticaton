@@ -1,0 +1,195 @@
+---
+// Admin inventory: every live product from src/data/ joined with its stock row (created on first save).
+import '../../styles/admin.css';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import AdminNav from '../../components/AdminNav.astro';
+import { getProduct, liveProducts } from '../../data/catalog';
+import { field } from '../../lib/server/forms';
+
+export const prerender = false;
+
+const supabase = Astro.locals.supabase!;
+let alert = '';
+let alertSlug = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const slug = field(form, 'slug');
+  const onHand = Number(field(form, 'on_hand'));
+  const threshold = Number(field(form, 'low_stock_threshold'));
+  const reason = field(form, 'reason') === 'restock' ? 'restock' : 'adjustment';
+  alertSlug = slug;
+
+  if (!liveProducts.some((p) => p.slug === slug)) {
+    alert = 'Unknown product.';
+  } else if (!Number.isInteger(onHand) || onHand < 0 || !Number.isInteger(threshold) || threshold < 0) {
+    alert = 'Stock and threshold must be whole numbers of 0 or more.';
+  } else {
+    const { error } = await supabase.rpc('admin_set_stock', {
+      p_slug: slug,
+      p_on_hand: onHand,
+      p_low_stock_threshold: threshold,
+      p_reason: reason,
+      p_note: field(form, 'note'),
+    });
+    if (!error) return Astro.redirect(`/admin/inventory?done=${encodeURIComponent(slug)}`, 303);
+    alert = error.message.includes('reserved_within_on_hand')
+      ? 'On hand cannot be lower than what open checkouts are holding.'
+      : `Stock couldn't be saved: ${error.message}`;
+  }
+}
+
+const [{ data: rows }, { data: movements }] = await Promise.all([
+  supabase.from('inventory').select('*'),
+  supabase.from('inventory_movements').select('*').order('created_at', { ascending: false }).limit(25),
+]);
+const stock = new Map((rows ?? []).map((row) => [row.product_slug, row]));
+const savedSlug = Astro.url.searchParams.get('done');
+const savedName = savedSlug ? getProduct(savedSlug)?.name : undefined;
+const dateTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+---
+
+<BaseLayout title="Inventory · Admin" description="NATH & JAID inventory." noindex newsletter={false}>
+  <section class="admin">
+    <div class="container inventory">
+      <AdminNav />
+      <h1>Inventory</h1>
+      <p class="muted">
+        Available = on hand − held by open checkouts. Customers see “Only a few left” at or below the threshold, never counts.
+      </p>
+      {savedName && <p class="admin-notice" role="status">{savedName} saved.</p>}
+      {alert && <p class="admin-alert" role="alert">{getProduct(alertSlug)?.name ?? ''}: {alert}</p>}
+
+      <ul class="stock-list">
+        {
+          liveProducts.map((product) => {
+            const row = stock.get(product.slug);
+            const available = row ? row.on_hand - row.reserved : 0;
+            return (
+              <li class="stock-item">
+                <div class="stock-summary">
+                  <h2>{product.name}</h2>
+                  {row ? (
+                    <p class="muted">
+                      {row.on_hand} on hand · {row.reserved} held · <strong>{available} available</strong>
+                    </p>
+                  ) : (
+                    <p class="flag">No stock row yet — sold out until saved</p>
+                  )}
+                </div>
+                <form method="post" class="stock-form" aria-label={`Stock for ${product.name}`}>
+                  <input type="hidden" name="slug" value={product.slug} />
+                  <div class="field">
+                    <label for={`on_hand-${product.slug}`}>On hand</label>
+                    <input id={`on_hand-${product.slug}`} name="on_hand" type="number" min="0" step="1" class="input" value={row?.on_hand ?? 0} required />
+                  </div>
+                  <div class="field">
+                    <label for={`threshold-${product.slug}`}>Low at</label>
+                    <input id={`threshold-${product.slug}`} name="low_stock_threshold" type="number" min="0" step="1" class="input" value={row?.low_stock_threshold ?? 5} required />
+                  </div>
+                  <div class="field">
+                    <label for={`reason-${product.slug}`}>Reason</label>
+                    <select id={`reason-${product.slug}`} name="reason" class="input">
+                      <option value="restock">Restock</option>
+                      <option value="adjustment">Adjustment</option>
+                    </select>
+                  </div>
+                  <div class="field note-field">
+                    <label for={`note-${product.slug}`}>Note <span class="optional">(optional)</span></label>
+                    <input id={`note-${product.slug}`} name="note" class="input" maxlength="200" />
+                  </div>
+                  <button type="submit" class="btn">Save</button>
+                </form>
+              </li>
+            );
+          })
+        }
+      </ul>
+
+      <section aria-labelledby="movements-heading" class="movements">
+        <h2 id="movements-heading">Recent stock changes</h2>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Candle</th>
+                <th scope="col" class="num">Change</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements?.map((m) => (
+                <tr>
+                  <td>{dateTime.format(new Date(m.created_at))}</td>
+                  <td>{getProduct(m.product_slug)?.name ?? m.product_slug}</td>
+                  <td class="num">{m.delta > 0 ? `+${m.delta}` : m.delta}</td>
+                  <td>{m.reason}</td>
+                  <td>{m.note ?? ''}</td>
+                </tr>
+              ))}
+              {movements?.length === 0 && (
+                <tr>
+                  <td colspan="5" class="muted">No stock changes yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .inventory {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .stock-list {
+    display: grid;
+    gap: 1rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .stock-item {
+    display: grid;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--color-soft-ivory);
+  }
+
+  .stock-summary {
+    display: grid;
+    gap: 0.25rem;
+    font-size: var(--fs-small);
+  }
+
+  .stock-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+    align-items: end;
+  }
+
+  .stock-form .input { min-height: 2.75rem; padding-block: 0.5rem; }
+
+  .note-field { grid-column: 1 / -1; }
+
+  @media (min-width: 960px) {
+    .stock-item { grid-template-columns: 14rem minmax(0, 1fr); align-items: center; }
+
+    .stock-form { grid-template-columns: 7rem 7rem 9rem minmax(0, 1fr) auto; }
+
+    .note-field { grid-column: auto; }
+  }
+
+  .movements {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+</style>

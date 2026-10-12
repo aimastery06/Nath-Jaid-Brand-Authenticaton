@@ -1,0 +1,96 @@
+---
+import type { NoteStructure } from '../data/types';
+
+interface Props {
+  notes: NoteStructure;
+  /** Product mood line, shown as "The feeling:". */
+  moodLine?: string;
+  /** Inline layout for the slideshow. */
+  compact?: boolean;
+}
+
+const { notes, moodLine, compact = false } = Astro.props;
+const rows = [
+  ['Top', notes.top],
+  ['Heart', notes.heart],
+  ['Base', notes.base],
+] as const;
+---
+
+<div class:list={['scent-notes', { compact }]}>
+  <dl>
+    {
+      rows.map(([label, value]) => (
+        <div class="note">
+          <dt>{label}</dt>
+          <dd class="serif">{value}</dd>
+        </div>
+      ))
+    }
+  </dl>
+  {
+    moodLine && (
+      <p class="feeling">
+        <span class="feeling-label">The feeling:</span> <span class="serif">{moodLine}</span>
+      </p>
+    )
+  }
+</div>
+
+<style>
+  dl {
+    display: grid;
+    padding: 0;
+  }
+
+  .note {
+    display: grid;
+    grid-template-columns: 5rem 1fr;
+    align-items: baseline;
+    gap: 1rem;
+    padding-block: 0.85rem;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .note:first-child { border-top: 1px solid var(--color-rule); }
+
+  dt,
+  .feeling-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-evergreen);
+  }
+
+  dd {
+    margin: 0;
+    font-size: 1.25rem;
+    line-height: 1.3;
+    color: var(--color-evergreen);
+  }
+
+  .feeling {
+    margin-top: 1.25rem;
+    font-size: 1.125rem;
+  }
+
+  .feeling .serif { color: var(--color-evergreen); }
+
+  /* Slideshow: three notes side by side */
+  .compact dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    padding-block: 1rem;
+    border-block: 1px solid var(--color-rule);
+  }
+
+  .compact .note {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+    padding: 0;
+    border: 0;
+  }
+
+  .compact dd { font-size: 1.0625rem; }
+</style>

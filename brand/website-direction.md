@@ -55,7 +55,12 @@ Avoid:
 | Product | `/products/<slug>` | One template for every candle |
 | Our Story | `/about` | Brand belief, mission, promise, seasonal approach |
 | Contact | `/contact` | Simple contact form |
-| Bag | `/bag` | Local bag on the visitor's device; no checkout |
+| Bag | `/bag` | Bag on the visitor's device, with checkout (Phase 2) |
+| Checkout confirmation | `/checkout/success` | Order confirmation after Stripe Checkout (Phase 2) |
+| Account | `/account`, `/account/orders/<number>` | Profile and orders (Phase 2) |
+| Sign in, sign up, reset | `/account/sign-in`, `/account/sign-up`, `/account/reset-password`, `/account/update-password` | Authentication (Phase 2) |
+| Policies | `/policies/shipping`, `/policies/returns`, `/policies/privacy`, `/policies/terms` | From [`policies/`](./policies/) (Phase 2) |
+| Admin | `/admin` | Private order and inventory management; not linked, not indexed (Phase 2) |
 | Not found | 404 | Short message and a link to the collection |
 
 Product slugs come from the product file: `pumpkin-chai`, `apple-cider-hearth`, `vanilla-amber`, `cedar-and-fig`.
@@ -80,11 +85,12 @@ Episode 1 navigation stays small, in this order:
 - Our Story → `/about`
 - Contact → `/contact`
 - Bag → `/bag`, with an item count once something is added
+- Account → `/account` (Phase 2), shown beside Bag rather than in the centered links
 
 Do not add Search in the MVP. Introduce category menus only when those categories exist.
 
-- **Desktop (≥ 960px):** logo left, links centered, Bag right. The current page gets a thin Warm Gold underline.
-- **Mobile:** menu button left, logo centered, Bag icon right. The menu opens as a panel below the header with large serif links; Escape and link selection close it.
+- **Desktop (≥ 960px):** logo left, links centered, Account and Bag right. The current page gets a thin Warm Gold underline.
+- **Mobile:** menu button left, logo centered, Account and Bag icons right. Account also appears in the menu panel. The menu opens as a panel below the header with large serif links; Escape and link selection close it.
 
 ### Newsletter Band
 
@@ -100,7 +106,7 @@ Do not add Search in the MVP. Introduce category menus only when those categorie
 - **NATH & JAID:** Our Story, Contact, the customer email as a `mailto:` link, Bag.
 - **Follow:** Instagram, TikTok, Pinterest, YouTube. Until official handles exist, link each to the platform homepage and open it in a new tab.
 - Copyright line: “© [year] NATH & JAID. Seasonal candles & home fragrance.”
-- Do not show policy links until those pages exist.
+- **Help** (Phase 2): Shipping, Returns, Privacy, Terms, and Account.
 
 ## Homepage Structure
 
@@ -180,7 +186,30 @@ Heading “We'd love to hear from you.” and the line “Questions about a scen
 
 ## Bag
 
-The bag is stored only in the visitor's browser. It shows each candle with its image, name, notes, quantity controls (up to 10), a remove control, the line price, and a subtotal. There is a note that online checkout is not available yet, and a disabled “Checkout coming soon” button. When the bag is empty, show “Your bag is empty — for now.” and a link to the collection.
+The bag is stored only in the visitor's browser. It shows each candle with its image, name, notes, quantity controls (up to 10, or fewer when less stock is available), a remove control, the line price, and a subtotal. When the bag is empty, show “Your bag is empty — for now.” and a link to the collection.
+
+**Phase 2 summary:** subtotal; a shipping line (“Complimentary”, or the flat rate with a note that shipping is complimentary at the threshold); a sales-tax line; an estimated total; a full-width “Checkout” button; and a small line linking the Shipping and Returns policies. Checkout sends the visitor to Stripe Checkout. Stock and checkout messages use the copy in [`voice.md`](./voice.md#commerce-copy) and appear in a polite live region above the summary. Returning from a cancelled checkout shows “Your bag is just as you left it.”
+
+## Stock States (Phase 2)
+
+- **Sold out:** the product page button becomes a disabled “Sold out”; cards show a small muted “Sold out” line under the price. Sold-out candles stay visible — never hide a candle from the collection.
+- **Low stock:** “Only a few left” in small muted text under the price. Never show exact counts.
+- No badges, colored labels, or countdowns. Stock loads after the page and never shifts the layout.
+
+## Checkout Confirmation (Phase 2)
+
+A single calm column: eyebrow “Order [number]”, the heading from [`voice.md`](./voice.md#checkout), a short line saying a receipt is on its way to the customer's email, the items with quantities, and the totals. Guests see the account prompt with a “Create an account” button. Always end with a text link back to the collection.
+
+## Account Pages (Phase 2)
+
+- **Sign in / sign up / reset:** a single narrow column (max ~28rem) on Warm Cream with a serif heading, a short lead, and labelled fields following the accessibility baseline. Sign-in offers a password form and, below a thin rule, “Email me a sign-in link.” Keep links between sign-in, sign-up, and reset as small text links.
+- **Account:** heading from [`voice.md`](./voice.md#accounts); an orders list (number, date, status label, total, and a link to details); a profile section with the name and email; sign-out; and a quiet “Request account deletion” link at the bottom.
+- **Order detail:** order number as the H1; status label and line; tracking when shipped; items with thumbnails, quantities, and prices; subtotal, shipping, tax, and total; and the shipping address.
+- Account pages share the global layout (announcement bar, header, newsletter band, footer).
+
+## Admin (Phase 2)
+
+Admin pages are for the team, not customers: plain, dense, readable tables on Soft Ivory using the same type and colors. They use the header and footer but not the newsletter band. Every destructive action (cancel, refund) asks for confirmation.
 
 ## Visual System
 
@@ -266,8 +295,7 @@ Do not invent claims about sustainability, testing, ingredient safety, sourcing,
 
 - Connect the newsletter and contact forms to a provider (they currently confirm on the page only).
 - Replace the social placeholder links with the official profiles.
-- Add policy pages (shipping, returns, privacy, terms), then link them in the footer.
-- Checkout remains out of scope for the MVP.
+- Confirm the values marked **pending confirmation** in [`README.md`](./README.md#company-details) and approve each policy in [`policies/`](./policies/) (`npm run check:launch` lists what remains).
 
 ## Final Test
 

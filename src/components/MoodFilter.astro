@@ -1,0 +1,116 @@
+---
+// Scent-mood filter for a product grid. The selected mood lives in the ?mood= URL parameter.
+import { getMoodProducts } from '../data/catalog';
+import type { Collection } from '../data/types';
+
+interface Props {
+  collection: Collection;
+  /** id of the ProductGrid to filter. */
+  gridId: string;
+}
+
+const { collection, gridId } = Astro.props;
+const total = collection.products.length;
+const plural = (n: number) => `${n} ${n === 1 ? 'candle' : 'candles'}`;
+const moods = collection.moods.map((mood) => ({
+  ...mood,
+  accents: getMoodProducts(collection, mood.slug).map((p) => p.accent),
+}));
+---
+
+<div class="mood-filter" data-mood-filter data-grid={gridId}>
+  <h2 id="mood-filter-heading" class="eyebrow">Shop by scent mood</h2>
+  <div class="pills" role="group" aria-labelledby="mood-filter-heading">
+    <button type="button" class="pill" aria-pressed="true" data-mood="">All</button>
+    {
+      moods.map((mood) => (
+        <button type="button" class="pill" aria-pressed="false" data-mood={mood.slug} data-label={mood.name}>
+          {mood.accents.map((accent) => (
+            <span class="swatch" style={`--swatch: ${accent}`} aria-hidden="true" />
+          ))}
+          {mood.name}
+        </button>
+      ))
+    }
+  </div>
+  <p class="filter-status" role="status" data-status>Showing {plural(total)}</p>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-mood-filter]').forEach((root) => {
+    const grid = document.getElementById(root.dataset.grid ?? '');
+    const pills = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-mood]'));
+    const status = root.querySelector<HTMLElement>('[data-status]');
+    if (!grid) return;
+    const items = Array.from(grid.querySelectorAll<HTMLElement>(':scope > li[data-mood]'));
+    const valid = new Set(pills.map((p) => p.dataset.mood).filter(Boolean));
+
+    const apply = (mood: string, updateUrl: boolean) => {
+      const selected = valid.has(mood) ? mood : '';
+      let shown = 0;
+      for (const item of items) {
+        const match = !selected || item.dataset.mood === selected;
+        item.hidden = !match;
+        if (match) shown += 1;
+      }
+      for (const pill of pills) pill.setAttribute('aria-pressed', String(pill.dataset.mood === selected));
+      if (status) {
+        const label = pills.find((p) => p.dataset.mood === selected)?.dataset.label;
+        const count = `Showing ${shown} ${shown === 1 ? 'candle' : 'candles'}`;
+        status.textContent = label ? `${count} · ${label}` : count;
+      }
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        if (selected) url.searchParams.set('mood', selected);
+        else url.searchParams.delete('mood');
+        history.replaceState(null, '', url);
+      }
+    };
+
+    pills.forEach((pill) => pill.addEventListener('click', () => apply(pill.dataset.mood ?? '', true)));
+    apply(new URLSearchParams(window.location.search).get('mood') ?? '', false);
+  });
+</script>
+
+<style>
+  .mood-filter {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 1.1rem;
+    border: 1px solid var(--color-control-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-evergreen);
+    font-size: var(--fs-small);
+    font-weight: 500;
+    transition: background-color 0.2s var(--ease), color 0.2s var(--ease), border-color 0.2s var(--ease);
+  }
+
+  .pill:hover { border-color: var(--color-evergreen); }
+
+  .pill[aria-pressed='true'] {
+    background: var(--color-evergreen);
+    border-color: var(--color-evergreen);
+    color: var(--color-warm-cream);
+  }
+
+  .pill[aria-pressed='true'] .swatch { box-shadow: 0 0 0 1px var(--color-warm-cream); }
+
+  .filter-status {
+    font-size: var(--fs-small);
+    color: var(--color-text-muted);
+  }
+</style>

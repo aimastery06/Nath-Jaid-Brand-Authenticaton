@@ -8,9 +8,9 @@ Each image has a `.webp` (used by the website) and a `.png` (high-quality source
 
 ### This folder — brand images (not tied to a collection)
 
-| File | Use |
-|---|---|
-| `our-story-hero` | Our Story page image (3:2) |
+| File | Use | Alt text |
+|---|---|---|
+| `our-story-hero` | Our Story page image (3:2) | Two people in linen aprons pouring creamy wax into amber glass vessels and setting wicks at a stone counter, with a finished NATH & JAID candle, spices, and autumn leaves nearby. |
 
 ### [`fall/`](./fall/) — Fall Collection, active
 
@@ -62,5 +62,5 @@ Prompts used to create the current images are in [`../FALL-IMAGE-GENERATION-PROM
 
 - Product images are 4:5 portrait; campaign heroes are 16:9 with clean negative space on the left for the headline.
 - Provide WebP (or AVIF) for the website and keep a high-quality source alongside it.
-- Write useful alt text for every image in the product data.
+- Write useful alt text for every image in the product data. Fall product and hero alt text lives in [`../fall-collection.md`](../fall-collection.md); brand-image alt text lives in the table above.
 - Do not add unapproved or temporary images without clearly marking them as placeholders.

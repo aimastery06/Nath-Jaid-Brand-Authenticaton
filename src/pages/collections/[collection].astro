@@ -1,0 +1,52 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Breadcrumb from '../../components/Breadcrumb.astro';
+import MoodFilter from '../../components/MoodFilter.astro';
+import ProductGrid from '../../components/ProductGrid.astro';
+import { getCollectionProducts, liveCollections } from '../../data/catalog';
+import type { Collection } from '../../data/types';
+
+export function getStaticPaths() {
+  return liveCollections.map((collection) => ({
+    params: { collection: collection.slug },
+    props: { collection },
+  }));
+}
+
+interface Props {
+  collection: Collection;
+}
+
+const { collection } = Astro.props;
+const products = getCollectionProducts(collection);
+---
+
+<BaseLayout title={collection.name} description={`${collection.description} Shop all ${products.length} candles by scent mood.`}>
+  <section class="collection section">
+    <div class="container">
+      <Breadcrumb items={[{ label: 'Home', href: '/' }, { label: collection.name }]} />
+
+      <header class="collection-header">
+        <h1>{collection.name}</h1>
+        <p class="lead muted">{collection.description}</p>
+      </header>
+
+      <MoodFilter collection={collection} gridId="shop" />
+
+      <div class="collection-grid">
+        <ProductGrid products={products} id="shop" />
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .collection-header {
+    display: grid;
+    gap: 1rem;
+    max-width: 40rem;
+    margin-block: clamp(2rem, 1.5rem + 2vw, 3.5rem);
+  }
+
+  .collection-grid { margin-top: clamp(2rem, 1.5rem + 2vw, 3rem); }
+</style>

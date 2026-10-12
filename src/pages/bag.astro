@@ -1,0 +1,531 @@
+---
+// Bag: contents live in the visitor's browser. Checkout posts slugs and quantities to /api/checkout,
+// which re-prices everything on the server (brand/website-direction.md, "Bag").
+import { getImage } from 'astro:assets';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import TextLink from '../components/TextLink.astro';
+import Button from '../components/Button.astro';
+import { activeCollection, formatShortNotes, liveProducts, productHref } from '../data/catalog';
+import { company } from '../data/company';
+import { flatShippingCents, freeShippingThresholdCents } from '../lib/commerce';
+import { policyHref } from '../data/policies';
+
+// Product facts the bag script needs, taken from the central catalog.
+const catalog = await Promise.all(
+  liveProducts.map(async (product) => {
+    const [primary] = product.images;
+    const thumb = primary ? await getImage({ src: primary.src, width: 240, format: 'webp' }) : undefined;
+    return {
+      slug: product.slug,
+      name: product.name,
+      notes: formatShortNotes(product.shortNotes),
+      price: product.price,
+      href: productHref(product),
+      image: thumb?.src ?? '',
+      alt: primary?.alt ?? '',
+    };
+  }),
+);
+const catalogJson = JSON.stringify(catalog).replace(/</g, '\\u003c');
+const pricingJson = JSON.stringify({
+  thresholdCents: freeShippingThresholdCents,
+  flatCents: flatShippingCents,
+  threshold: company.freeShippingThreshold,
+  taxPercent: company.salesTaxPercent,
+});
+---
+
+<BaseLayout title="Your bag" description="Review the candles in your NATH & JAID bag.">
+  <section class="bag section">
+    <div class="container">
+      <h1>Your bag</h1>
+
+      <p class="bag-message" data-bag-message hidden></p>
+
+      <div class="bag-empty" data-bag-empty>
+        <p class="lead">Your bag is empty — for now.</p>
+        <TextLink href={activeCollection.route}>Explore the collection</TextLink>
+      </div>
+
+      <div class="bag-contents" data-bag-contents hidden>
+        <ul class="bag-items" data-bag-items aria-label="Items in your bag"></ul>
+
+        <aside class="summary" aria-labelledby="summary-heading">
+          <h2 id="summary-heading" class="summary-heading">Summary</h2>
+          <dl class="totals">
+            <div class="total-row">
+              <dt>Subtotal</dt>
+              <dd class="price" data-subtotal></dd>
+            </div>
+            <div class="total-row">
+              <dt>Shipping</dt>
+              <dd class="price" data-shipping></dd>
+            </div>
+            <p class="shipping-note muted" data-shipping-note hidden>
+              Complimentary on orders of ${company.freeShippingThreshold} or more.
+            </p>
+            {
+              company.salesTaxPercent > 0 && (
+                <div class="total-row">
+                  <dt>Sales tax ({company.salesTaxPercent}%)</dt>
+                  <dd class="price" data-tax></dd>
+                </div>
+              )
+            }
+            <div class="total-row grand-total">
+              <dt>Estimated total</dt>
+              <dd class="price" data-total></dd>
+            </div>
+          </dl>
+          <Button block data-checkout>Checkout</Button>
+          <p class="muted summary-note">
+            Secure payment with Stripe. See our <a class="inline-link" href={policyHref('shipping')}>shipping</a> and{' '}
+            <a class="inline-link" href={policyHref('returns')}>returns</a> policies.
+          </p>
+        </aside>
+      </div>
+
+      <p class="sr-only" aria-live="polite" data-bag-status></p>
+
+      <template data-item-template>
+        <li class="bag-item">
+          <a class="item-media" data-link tabindex="-1" aria-hidden="true">
+            <img data-image width="240" height="300" alt="" loading="lazy" />
+          </a>
+          <div class="item-info">
+            <h2 class="item-name"><a data-link data-name></a></h2>
+            <p class="item-notes muted" data-notes></p>
+            <p class="item-stock" data-stock hidden></p>
+            <div class="item-actions">
+              <div class="stepper" role="group" data-stepper>
+                <button type="button" class="step" data-decrease>
+                  <span aria-hidden="true">−</span>
+                </button>
+                <output class="qty" data-qty aria-live="off"></output>
+                <button type="button" class="step" data-increase>
+                  <span aria-hidden="true">+</span>
+                </button>
+              </div>
+              <button type="button" class="remove" data-remove>Remove</button>
+            </div>
+          </div>
+          <p class="item-price price" data-line-price></p>
+        </li>
+      </template>
+
+      <script is:inline type="application/json" data-bag-catalog set:html={catalogJson} />
+      <script is:inline type="application/json" data-bag-pricing set:html={pricingJson} />
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import { MAX_QUANTITY, onBagChange, readBag, removeFromBag, setQuantity, type BagContents } from '../scripts/bag';
+  import { loadStock, stockCopy, type StockMap } from '../scripts/stock';
+
+  interface CatalogItem {
+    slug: string;
+    name: string;
+    notes: string;
+    price: number;
+    href: string;
+    image: string;
+    alt: string;
+  }
+
+  interface Pricing {
+    thresholdCents: number;
+    flatCents: number;
+    threshold: number;
+    taxPercent: number;
+  }
+
+  interface Shortage {
+    slug: string;
+    name: string;
+    available: number;
+  }
+
+  const catalogEl = document.querySelector<HTMLScriptElement>('[data-bag-catalog]');
+  const catalog: CatalogItem[] = catalogEl ? JSON.parse(catalogEl.textContent ?? '[]') : [];
+  const pricingEl = document.querySelector<HTMLScriptElement>('[data-bag-pricing]');
+  const pricing: Pricing = JSON.parse(pricingEl?.textContent ?? '{}');
+  const list = document.querySelector<HTMLUListElement>('[data-bag-items]');
+  const template = document.querySelector<HTMLTemplateElement>('[data-item-template]');
+  const empty = document.querySelector<HTMLElement>('[data-bag-empty]');
+  const contents = document.querySelector<HTMLElement>('[data-bag-contents]');
+  const subtotalEl = document.querySelector<HTMLElement>('[data-subtotal]');
+  const shippingEl = document.querySelector<HTMLElement>('[data-shipping]');
+  const shippingNote = document.querySelector<HTMLElement>('[data-shipping-note]');
+  const totalEl = document.querySelector<HTMLElement>('[data-total]');
+  const taxEl = document.querySelector<HTMLElement>('[data-tax]');
+  const checkoutButton = document.querySelector<HTMLButtonElement>('[data-checkout]');
+  const message = document.querySelector<HTMLElement>('[data-bag-message]');
+  const status = document.querySelector<HTMLElement>('[data-bag-status]');
+  let stock: StockMap = {};
+
+  const money = (amount: number) => `$${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
+  // Visible note above the bag; screen readers hear it through the polite status region.
+  const showMessage = (text: string) => {
+    if (!message) return;
+    message.textContent = text;
+    message.hidden = !text;
+    if (text) announce(text);
+  };
+  const announce = (message: string) => {
+    if (status) status.textContent = message;
+  };
+
+  function render(bag: BagContents) {
+    if (!list || !template || !empty || !contents) return;
+    // Remember focus so re-rendering doesn't drop keyboard users back to the top of the page.
+    const active = document.activeElement as HTMLElement | null;
+    const focusKey = active?.closest<HTMLElement>('[data-slug]')?.dataset.slug;
+    const focusRole = active ? ['data-decrease', 'data-increase', 'data-remove'].find((a) => active.hasAttribute(a)) : undefined;
+
+    const items = catalog.filter((item) => (bag[item.slug] ?? 0) > 0);
+    list.replaceChildren();
+    let subtotal = 0;
+    let taxCents = 0;
+
+    for (const item of items) {
+      const quantity = bag[item.slug] ?? 0;
+      subtotal += quantity * item.price;
+      // Per line, rounded, as Stripe applies the tax rate (src/lib/commerce.ts).
+      taxCents += Math.round((Math.round(quantity * item.price * 100) * pricing.taxPercent) / 100);
+      const node = template.content.firstElementChild!.cloneNode(true) as HTMLLIElement;
+      node.dataset.slug = item.slug;
+      node.querySelectorAll<HTMLAnchorElement>('[data-link]').forEach((a) => (a.href = item.href));
+      const img = node.querySelector<HTMLImageElement>('[data-image]')!;
+      img.src = item.image;
+      node.querySelector('[data-name]')!.textContent = item.name;
+      node.querySelector('[data-notes]')!.textContent = item.notes;
+      node.querySelector('[data-qty]')!.textContent = String(quantity);
+      node.querySelector('[data-line-price]')!.textContent = money(quantity * item.price);
+
+      const stockState = stock[item.slug];
+      const stockEl = node.querySelector<HTMLElement>('[data-stock]')!;
+      if (stockState === 'low' || stockState === 'sold_out') {
+        stockEl.textContent = stockCopy[stockState];
+        stockEl.hidden = false;
+      }
+
+      const stepper = node.querySelector<HTMLElement>('[data-stepper]')!;
+      stepper.setAttribute('aria-label', `Quantity of ${item.name}: ${quantity}`);
+      const decrease = node.querySelector<HTMLButtonElement>('[data-decrease]')!;
+      const increase = node.querySelector<HTMLButtonElement>('[data-increase]')!;
+      const remove = node.querySelector<HTMLButtonElement>('[data-remove]')!;
+      decrease.setAttribute('aria-label', `Decrease quantity of ${item.name}`);
+      increase.setAttribute('aria-label', `Increase quantity of ${item.name}`);
+      remove.setAttribute('aria-label', `Remove ${item.name} from your bag`);
+      decrease.disabled = quantity <= 1;
+      increase.disabled = quantity >= MAX_QUANTITY || stockState === 'sold_out';
+
+      decrease.addEventListener('click', () => {
+        setQuantity(item.slug, quantity - 1);
+        announce(`${item.name} quantity ${quantity - 1}.`);
+      });
+      increase.addEventListener('click', () => {
+        setQuantity(item.slug, quantity + 1);
+        announce(`${item.name} quantity ${quantity + 1}.`);
+      });
+      remove.addEventListener('click', () => {
+        removeFromBag(item.slug);
+        announce(`${item.name} removed from your bag.`);
+      });
+
+      list.append(node);
+    }
+
+    empty.hidden = items.length > 0;
+    contents.hidden = items.length === 0;
+    // Estimate only; the server sets the real shipping and total at checkout.
+    const subtotalCents = Math.round(subtotal * 100);
+    const shippingCents = subtotalCents >= pricing.thresholdCents ? 0 : pricing.flatCents;
+    if (subtotalEl) subtotalEl.textContent = money(subtotal);
+    if (shippingEl) shippingEl.textContent = shippingCents === 0 ? 'Complimentary' : money(shippingCents / 100);
+    if (shippingNote) shippingNote.hidden = shippingCents === 0;
+    if (taxEl) taxEl.textContent = money(taxCents / 100);
+    if (totalEl) totalEl.textContent = money((subtotalCents + shippingCents + taxCents) / 100);
+
+    // Restore focus to the same control, or a sensible neighbour when it disappeared.
+    if (focusKey && focusRole) {
+      const row = list.querySelector<HTMLElement>(`[data-slug="${focusKey}"]`);
+      let target = row?.querySelector<HTMLButtonElement>(`[${focusRole}]`);
+      if (target?.disabled) target = row?.querySelector<HTMLButtonElement>('[data-decrease]:not(:disabled), [data-increase]:not(:disabled)');
+      if (!target) target = list.querySelector<HTMLButtonElement>('[data-remove]') ?? undefined;
+      (target ?? empty.querySelector<HTMLElement>('a'))?.focus();
+    }
+  }
+
+  render(readBag());
+  onBagChange(render);
+  loadStock().then((loaded) => {
+    stock = loaded;
+    render(readBag());
+  });
+
+  // Returning from Stripe without paying.
+  const params = new URLSearchParams(location.search);
+  if (params.get('checkout') === 'cancelled') {
+    showMessage('Your bag is just as you left it.');
+    history.replaceState(null, '', location.pathname);
+  }
+
+  // Copy from brand/voice.md ("Stock" and "Checkout").
+  const unavailable = 'Checkout is resting for a moment. Please try again shortly.';
+
+  function applyShortages(shortages: Shortage[]): string {
+    return shortages
+      .map(({ slug, name, available }) => {
+        if (available <= 0) {
+          removeFromBag(slug);
+          return `${name} sold out while it was in your bag, so we've removed it.`;
+        }
+        setQuantity(slug, available);
+        return `We have only ${available} ${name} left, so we've updated your bag.`;
+      })
+      .join(' ');
+  }
+
+  function setBusy(busy: boolean) {
+    if (!checkoutButton) return;
+    checkoutButton.disabled = busy;
+    checkoutButton.setAttribute('aria-busy', String(busy));
+    checkoutButton.textContent = busy ? 'One moment…' : 'Checkout';
+  }
+
+  checkoutButton?.addEventListener('click', async () => {
+    const bag = readBag();
+    const items = catalog
+      .filter((item) => (bag[item.slug] ?? 0) > 0)
+      .map((item) => ({ slug: item.slug, quantity: bag[item.slug] }));
+    if (items.length === 0) return;
+
+    showMessage('');
+    setBusy(true);
+    try {
+      const response = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok && body.url) {
+        location.assign(body.url);
+        return;
+      }
+      if (response.status === 409 && Array.isArray(body.shortages)) {
+        showMessage(applyShortages(body.shortages));
+      } else if (response.status === 429) {
+        showMessage('We need a short pause before trying again. Please wait a few minutes.');
+      } else if (response.status === 400) {
+        showMessage('Something in your bag has changed. Please review it and try again.');
+      } else {
+        showMessage(unavailable);
+      }
+    } catch {
+      showMessage(unavailable);
+    }
+    setBusy(false);
+  });
+
+  // Coming back from Stripe with the browser's back button restores this page from cache.
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) setBusy(false);
+  });
+</script>
+
+<style>
+  .bag h1 { margin-bottom: clamp(2rem, 1.5rem + 2vw, 3rem); }
+
+  .bag-empty {
+    display: grid;
+    justify-items: start;
+    gap: 1.25rem;
+  }
+
+  .bag-contents {
+    display: grid;
+    gap: 3rem;
+  }
+
+  .bag-items {
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .bag-item {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: start;
+    padding-block: 1.5rem;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .item-media {
+    display: block;
+    aspect-ratio: 4 / 5;
+    background: var(--color-soft-ivory);
+    overflow: hidden;
+  }
+
+  .item-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .item-info {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .item-name { font-size: var(--fs-h3); }
+
+  .item-name a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .item-name a:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--color-warm-gold);
+    text-underline-offset: 0.2em;
+  }
+
+  .item-notes { font-size: var(--fs-small); }
+
+  .item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin-top: 0.5rem;
+  }
+
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--color-control-border);
+  }
+
+  .step {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-evergreen);
+    font-size: 1.125rem;
+  }
+
+  .step:hover:not(:disabled) { background: var(--color-soft-ivory); }
+
+  .step:disabled {
+    cursor: not-allowed;
+    color: var(--color-control-border);
+  }
+
+  .qty {
+    min-width: 2rem;
+    text-align: center;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .remove {
+    min-height: 2.75rem;
+    padding: 0 0.25rem;
+    border: 0;
+    background: none;
+    color: var(--color-text-muted);
+    font-size: var(--fs-small);
+    text-decoration: underline;
+    text-decoration-color: var(--color-warm-gold);
+    text-underline-offset: 0.25em;
+  }
+
+  .remove:hover { color: var(--color-evergreen); }
+
+  .item-price { font-size: 1rem; }
+
+  .summary {
+    display: grid;
+    gap: 1.25rem;
+    align-content: start;
+    padding: 1.75rem;
+    background: var(--color-soft-ivory);
+  }
+
+  .summary-heading { font-size: var(--fs-h3); }
+
+  .totals {
+    display: grid;
+    gap: 0.5rem;
+    padding-block: 1rem;
+    border-block: 1px solid var(--color-rule);
+  }
+
+  .total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+  }
+
+  .total-row dd { margin: 0; }
+
+  .grand-total {
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .grand-total dt { font-weight: 500; }
+
+  .grand-total dd { font-size: 1.25rem; }
+
+  .shipping-note,
+  .summary-note { font-size: var(--fs-small); }
+
+  .bag-message {
+    max-width: 40rem;
+    margin-bottom: 2rem;
+    padding: 1rem 1.25rem;
+    border-left: 2px solid var(--color-warm-gold);
+    background: var(--color-soft-ivory);
+  }
+
+  .item-stock {
+    font-size: var(--fs-small);
+    font-weight: 500;
+    color: var(--color-evergreen);
+  }
+
+  @media (max-width: 479px) {
+    .bag-item { grid-template-columns: 4.5rem minmax(0, 1fr); }
+
+    .item-price {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: end;
+    }
+
+    .item-info { grid-column: 1 / -1; }
+  }
+
+  @media (min-width: 960px) {
+    .bag-contents {
+      grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+      gap: 4rem;
+      align-items: start;
+    }
+
+    .bag-item { grid-template-columns: 7rem minmax(0, 1fr) auto; gap: 1.5rem; }
+  }
+</style>

@@ -1,0 +1,265 @@
+---
+// Account overview: orders, profile, sign-out, and an account-deletion request.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Button from '../../components/Button.astro';
+import TextLink from '../../components/TextLink.astro';
+import { activeCollection } from '../../data/catalog';
+import { orderStatusCopy } from '../../data/order-status';
+import { formatCents } from '../../lib/commerce';
+import { field } from '../../lib/server/forms';
+
+export const prerender = false;
+
+const supabase = Astro.locals.supabase!;
+const user = Astro.locals.user!;
+
+let nameError = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = field(form, 'intent');
+  if (intent === 'profile') {
+    const fullName = field(form, 'full_name');
+    if (fullName.length > 120) {
+      nameError = 'Please use a shorter name.';
+    } else {
+      await supabase.from('profiles').update({ full_name: fullName || null }).eq('id', user.id);
+      return Astro.redirect('/account?done=profile', 303);
+    }
+  } else if (intent === 'delete') {
+    await supabase.rpc('request_account_deletion');
+    return Astro.redirect('/account?done=deletion', 303);
+  }
+}
+
+const [{ data: profile }, { data: orders }] = await Promise.all([
+  supabase.from('profiles').select('full_name, deletion_requested_at').eq('id', user.id).single(),
+  supabase
+    .from('orders')
+    .select('number, status, total_cents, created_at')
+    .eq('user_id', user.id)
+    .not('status', 'in', '(pending_payment,expired)')
+    .order('created_at', { ascending: false }),
+]);
+
+const firstName = profile?.full_name?.split(/\s+/)[0];
+const dateFormat = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
+
+// Copy from brand/voice.md ("Accounts").
+const notices: Record<string, string> = {
+  profile: 'Your details are saved.',
+  password: 'Your password has been updated.',
+  deletion: "We've received your request and will confirm by email once your account is closed.",
+};
+const notice = notices[Astro.url.searchParams.get('done') ?? ''];
+---
+
+<BaseLayout title="Your account" description="Your NATH & JAID orders and details." noindex>
+  <section class="account section">
+    <div class="container account-inner">
+      <header class="account-header">
+        <p class="eyebrow">Your account</p>
+        <h1>{firstName ? `Hello, ${firstName}.` : 'Your account'}</h1>
+        {notice && <p class="account-notice" role="status">{notice}</p>}
+      </header>
+
+      <section aria-labelledby="orders-heading" class="account-block">
+        <h2 id="orders-heading" class="block-heading">Orders</h2>
+        {
+          orders && orders.length > 0 ? (
+            <ul class="order-list">
+              {orders.map((order) => (
+                <li class="order-row">
+                  <a class="order-link" href={`/account/orders/${order.number}`}>
+                    <span class="order-number serif">{order.number}</span>
+                    <span class="sr-only">, </span>
+                    <span class="muted">{dateFormat.format(new Date(order.created_at))}</span>
+                    <span class="sr-only">, </span>
+                    <span class="order-status">{orderStatusCopy[order.status].label}</span>
+                    <span class="sr-only">, </span>
+                    <span class="price">{formatCents(order.total_cents)}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div class="empty">
+              <p class="muted">No orders yet — the season is just getting started.</p>
+              <TextLink href={activeCollection.route}>Explore the collection</TextLink>
+            </div>
+          )
+        }
+      </section>
+
+      <section aria-labelledby="details-heading" class="account-block">
+        <h2 id="details-heading" class="block-heading">Your details</h2>
+        <form method="post" class="details-form" data-validate="submit" novalidate aria-label="Your details">
+          <input type="hidden" name="intent" value="profile" />
+          <div class="field">
+            <label for="full_name">Name</label>
+            <input id="full_name" name="full_name" class="input" autocomplete="name" maxlength="120" value={profile?.full_name ?? ''} aria-describedby="full_name-error" aria-invalid={nameError ? 'true' : undefined} />
+            <p id="full_name-error" class="field-error" hidden={!nameError}>{nameError}</p>
+          </div>
+          <div class="field">
+            <span class="label">Email address</span>
+            <p>{user.email}</p>
+          </div>
+          <div class="details-actions">
+            <Button type="submit">Save details</Button>
+            <a class="inline-link" href="/account/update-password">Change password</a>
+          </div>
+        </form>
+      </section>
+
+      <div class="account-footer">
+        <form method="post" action="/account/sign-out">
+          <Button type="submit">Sign out</Button>
+        </form>
+
+        {
+          profile?.deletion_requested_at ? (
+            <p class="muted small">Account deletion requested. We'll confirm by email once it's done.</p>
+          ) : (
+            <details class="delete">
+              <summary>Request account deletion</summary>
+              <p class="muted small">
+                We'll close your account and remove your details. Records of past orders are kept as the law requires.
+              </p>
+              <form method="post">
+                <input type="hidden" name="intent" value="delete" />
+                <button type="submit" class="text-button">Yes, request deletion</button>
+              </form>
+            </details>
+          )
+        }
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import '../../scripts/forms';
+</script>
+
+<style>
+  .account-inner {
+    display: grid;
+    gap: clamp(2.5rem, 2rem + 2vw, 4rem);
+    max-width: 48rem;
+  }
+
+  .account-header {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .account-notice {
+    padding: 1rem 1.25rem;
+    border-left: 2px solid var(--color-warm-gold);
+    background: var(--color-soft-ivory);
+  }
+
+  .account-block {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .block-heading { font-size: var(--fs-h3); }
+
+  .order-list {
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .order-row { border-bottom: 1px solid var(--color-rule); }
+
+  .order-link {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 1rem;
+    padding-block: 1rem;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .order-link:hover .order-number {
+    text-decoration: underline;
+    text-decoration-color: var(--color-warm-gold);
+    text-underline-offset: 0.2em;
+  }
+
+  .order-number {
+    font-size: 1.125rem;
+    color: var(--color-evergreen);
+  }
+
+  .order-status { font-size: var(--fs-small); font-weight: 500; }
+
+  @media (min-width: 640px) {
+    .order-link {
+      grid-template-columns: 1fr 1fr 1fr auto;
+      align-items: baseline;
+    }
+  }
+
+  .empty {
+    display: grid;
+    justify-items: start;
+    gap: 1rem;
+  }
+
+  .details-form {
+    display: grid;
+    gap: 1.25rem;
+    max-width: 28rem;
+  }
+
+  .details-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.5rem;
+  }
+
+  .account-footer {
+    display: grid;
+    justify-items: start;
+    gap: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .small { font-size: var(--fs-small); }
+
+  .delete {
+    display: grid;
+    gap: 0.75rem;
+    font-size: var(--fs-small);
+  }
+
+  .delete summary {
+    cursor: pointer;
+    min-height: 2.75rem;
+    display: flex;
+    align-items: center;
+    color: var(--color-text-muted);
+    text-decoration: underline;
+    text-decoration-color: var(--color-warm-gold);
+    text-underline-offset: 0.25em;
+  }
+
+  .delete p { margin-block: 0.5rem 0.75rem; }
+
+  .text-button {
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-evergreen);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: var(--color-fall-terracotta);
+    text-underline-offset: 0.25em;
+  }
+</style>

@@ -1,0 +1,155 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Breadcrumb from '../../components/Breadcrumb.astro';
+import ProductGallery from '../../components/ProductGallery.astro';
+import AddToBag from '../../components/AddToBag.astro';
+import ScentNotes from '../../components/ScentNotes.astro';
+import ProductSpecs from '../../components/ProductSpecs.astro';
+import ProductGrid from '../../components/ProductGrid.astro';
+import {
+  formatNoteList,
+  formatPrice,
+  formatShortNotes,
+  getCollectionProducts,
+  getMood,
+  getProductCollection,
+  liveProducts,
+} from '../../data/catalog';
+import type { Product } from '../../data/types';
+
+export function getStaticPaths() {
+  return liveProducts.map((product) => ({ params: { slug: product.slug }, props: { product } }));
+}
+
+interface Props {
+  product: Product;
+}
+
+const { product } = Astro.props;
+const collection = getProductCollection(product);
+const mood = getMood(collection, product.mood);
+const others = getCollectionProducts(collection).filter((p) => p.slug !== product.slug);
+---
+
+<BaseLayout
+  title={`${product.name} — ${collection.specs.type}`}
+  description={`${product.description} ${collection.specs.type}, ${collection.specs.size}, ${formatPrice(product.price)}.`}
+  ogType="product"
+>
+  <section class="product section">
+    <div class="container">
+      <Breadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: collection.name, href: collection.route },
+          { label: product.name },
+        ]}
+      />
+
+      <div class="product-layout">
+        <ProductGallery images={product.images} name={product.name} />
+
+        <div class="product-info">
+          <div class="buy">
+            <p class="eyebrow">{collection.name} · {mood.name}</p>
+            <h1>{product.name}</h1>
+            <p class="short-notes">{formatShortNotes(product.shortNotes)}</p>
+            <p class="price">{formatPrice(product.price)}</p>
+            <p class="description">{product.description}</p>
+            <AddToBag product={product} />
+          </div>
+
+          <section aria-labelledby="notes-heading" class="info-block">
+            <h2 id="notes-heading" class="info-heading">Scent notes</h2>
+            <ScentNotes notes={product.notes} moodLine={product.moodLine} />
+          </section>
+
+          <section aria-labelledby="details-heading" class="info-block">
+            <h2 id="details-heading" class="info-heading">Details</h2>
+            <ProductSpecs specs={collection.specs} vessel={product.vessel} />
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="moment bg-ivory section" aria-labelledby="moment-heading">
+    <div class="container moment-inner">
+      <h2 id="moment-heading" class="eyebrow">The moment</h2>
+      <p class="moment-story serif">{product.story}</p>
+      <p class="muted">Notes of {formatNoteList(product.scentNotes)}.</p>
+    </div>
+  </section>
+
+  <section class="more section" aria-labelledby="more-heading">
+    <div class="container">
+      <h2 id="more-heading" class="more-heading">More for the season</h2>
+      <ProductGrid products={others} />
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .product-layout {
+    display: grid;
+    gap: 2.5rem;
+    margin-top: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  }
+
+  .product-info {
+    display: grid;
+    gap: 3rem;
+    align-content: start;
+  }
+
+  .buy {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .short-notes { color: var(--color-text-muted); }
+
+  .buy .price { font-size: 1.25rem; }
+
+  .description {
+    max-width: 34rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .info-block {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .info-heading { font-size: var(--fs-h3); }
+
+  .moment-inner {
+    display: grid;
+    justify-items: center;
+    gap: 1.5rem;
+    max-width: 52rem;
+    text-align: center;
+  }
+
+  .moment-story {
+    font-size: clamp(1.75rem, 1.3rem + 2vw, 3rem);
+    line-height: 1.2;
+    color: var(--color-evergreen);
+    text-wrap: balance;
+  }
+
+  .more-heading { margin-bottom: clamp(2rem, 1.5rem + 2vw, 3rem); }
+
+  @media (min-width: 960px) {
+    .product-layout {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      gap: clamp(3rem, 5vw, 6rem);
+      align-items: start;
+    }
+
+    .product-layout :global(.gallery) {
+      position: sticky;
+      top: calc(var(--header-height) + 1.5rem);
+    }
+  }
+</style>

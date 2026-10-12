@@ -1,0 +1,76 @@
+---
+import '@fontsource/dm-serif-display/400.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '../styles/global.css';
+
+import { getImage } from 'astro:assets';
+import AnnouncementBar from '../components/AnnouncementBar.astro';
+import Header from '../components/Header.astro';
+import NewsletterBand from '../components/NewsletterBand.astro';
+import Footer from '../components/Footer.astro';
+import { activeCollection } from '../data/catalog';
+import { company } from '../data/company';
+
+interface Props {
+  /** Page-specific title; the brand name is appended. Omit on the homepage. */
+  title?: string;
+  description: string;
+  ogType?: 'website' | 'product';
+  /** Account, checkout, and admin pages stay out of search results. */
+  noindex?: boolean;
+  /** Admin pages omit the newsletter band. */
+  newsletter?: boolean;
+}
+
+const { title, description, ogType = 'website', noindex = false, newsletter = true } = Astro.props;
+
+const fullTitle = title ? `${title} | ${company.name}` : `${company.name} — ${company.descriptor}`;
+
+// Open Graph image: the active collection's hero. URLs become absolute when SITE_URL is set at build time.
+const ogImage = await getImage({ src: activeCollection.heroImage.src, width: 1200, format: 'jpeg' });
+const absolute = (path: string) => (Astro.site ? new URL(path, Astro.site).href : path);
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {canonical && <link rel="canonical" href={canonical} />}
+    <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#F7F2E8" />
+
+    <meta property="og:site_name" content={company.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content={ogType} />
+    {canonical && <meta property="og:url" content={canonical} />}
+    <meta property="og:image" content={absolute(ogImage.src)} />
+    <meta property="og:image:width" content={String(ogImage.attributes.width)} />
+    <meta property="og:image:height" content={String(ogImage.attributes.height)} />
+    <meta property="og:image:alt" content={activeCollection.heroImage.alt} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <slot name="head" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <AnnouncementBar />
+    <Header />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    {newsletter && <NewsletterBand />}
+    <Footer />
+  </body>
+</html>
+
+<style>
+  main:focus { outline: none; }
+</style>

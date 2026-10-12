@@ -68,6 +68,16 @@ The brand may live in the premium home-fragrance and lifestyle space, but it mus
 |---|---|
 | Customer email | info@nathjaid.com |
 | Complimentary shipping | Orders of $35 or more |
+| Standard shipping (orders under $35) | $6 flat rate |
+| Ships to | United States only |
+| Processing time | Orders ship within 2–3 business days — **pending confirmation** |
+| Currency | USD |
+| Sales tax | 3.25% on candles, added at checkout (shipping is not taxed) |
+| Legal business name | Nath & Jaid Fragrances |
+| Card statement descriptor | `NATH JAID` (set in the Stripe Dashboard) — **pending confirmation** |
+| Receipt and support email | info@nathjaid.com |
+
+Values marked **pending confirmation** are working defaults so commerce can be built and tested. Confirm or replace each one before taking live payments; `npm run check:launch` fails while any remain.
 
 ## Directory Guide
 
@@ -80,5 +90,6 @@ The brand may live in the premium home-fragrance and lifestyle space, but it mus
 - [`product/summer-collection.md`](./product/summer-collection.md) — Summer Collection products (documented, not yet launched)
 - [`product/FALL-IMAGE-GENERATION-PROMPTS.md`](./product/FALL-IMAGE-GENERATION-PROMPTS.md) and [`product/SUMMER-IMAGE-GENERATION-PROMPTS.md`](./product/SUMMER-IMAGE-GENERATION-PROMPTS.md) — prompts used to create the photography
 - [`product/images/`](./product/images/) — product and campaign photography, with a file guide and naming rules
+- [`policies/`](./policies/) — shipping, returns, privacy, and terms policies shown on the website
 
 Update these files first; the website and [`../AGENT.md`](../AGENT.md) should then be brought in line with them.

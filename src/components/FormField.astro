@@ -1,0 +1,36 @@
+---
+// Labelled input with an error slot that both the server (on POST) and src/scripts/forms.ts (on submit) fill.
+import type { HTMLAttributes } from 'astro/types';
+
+type Props = {
+  id: string;
+  label: string;
+  /** Server-side error for this field, rendered on first paint. */
+  error?: string | null;
+  hint?: string;
+  requiredMessage?: string;
+  minlengthMessage?: string;
+} & Omit<HTMLAttributes<'input'>, 'id'>;
+
+const { id, label, error, hint, requiredMessage, minlengthMessage, class: className, ...rest } = Astro.props;
+const describedBy = [hint && `${id}-hint`, `${id}-error`].filter(Boolean).join(' ');
+---
+
+<div class="field">
+  <label for={id}>{label}</label>
+  {hint && <p id={`${id}-hint`} class="field-hint muted">{hint}</p>}
+  <input
+    id={id}
+    class:list={['input', className]}
+    aria-describedby={describedBy}
+    aria-invalid={error ? 'true' : undefined}
+    data-required-message={requiredMessage}
+    data-minlength-message={minlengthMessage}
+    {...rest}
+  />
+  <p id={`${id}-error`} class="field-error" hidden={!error}>{error}</p>
+</div>
+
+<style>
+  .field-hint { font-size: var(--fs-small); }
+</style>

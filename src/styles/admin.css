@@ -1,0 +1,87 @@
+/* Shared admin styles: plain, dense, readable tables (brand/website-direction.md, "Admin"). */
+
+.admin {
+  padding-block: var(--page-top-space) var(--section-space);
+}
+
+.admin h1 { font-size: var(--fs-h2); }
+
+.admin h2 { font-size: var(--fs-h3); }
+
+.admin-table-wrap {
+  overflow-x: auto;
+  background: var(--color-soft-ivory);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-rule);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.admin-table th {
+  font-weight: 600;
+  color: var(--color-evergreen);
+}
+
+.admin-table td.num,
+.admin-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-table a {
+  color: var(--color-evergreen);
+  font-weight: 500;
+}
+
+.admin-notice {
+  padding: 1rem 1.25rem;
+  border-left: 2px solid var(--color-warm-gold);
+  background: var(--color-soft-ivory);
+}
+
+.admin-alert {
+  padding: 1rem 1.25rem;
+  border-left: 2px solid var(--color-fall-terracotta);
+  background: var(--color-soft-ivory);
+}
+
+.flag {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--color-fall-terracotta);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.admin-form {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.admin-form .input { min-height: 2.75rem; padding-block: 0.5rem; }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.75rem;
+  font-size: var(--fs-small);
+}
+
+.check input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--color-evergreen);
+}

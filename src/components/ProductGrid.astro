@@ -1,0 +1,42 @@
+---
+import ProductCard from './ProductCard.astro';
+import type { Product } from '../data/types';
+
+interface Props {
+  products: Product[];
+  id?: string;
+}
+
+const { products, id } = Astro.props;
+---
+
+<ul class="product-grid" id={id} style={`--desktop-cols: ${Math.min(products.length, 4)}`} data-product-grid>
+  {
+    products.map((product) => (
+      <li data-mood={product.mood}>
+        <ProductCard product={product} />
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .product-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2.5rem 1rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 640px) {
+    .product-grid { column-gap: 1.5rem; }
+  }
+
+  @media (min-width: 1024px) {
+    .product-grid {
+      grid-template-columns: repeat(var(--desktop-cols, 4), minmax(0, 1fr));
+      gap: 3rem 2rem;
+    }
+  }
+</style>

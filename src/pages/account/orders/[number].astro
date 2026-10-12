@@ -1,0 +1,131 @@
+---
+// One order for its customer. Row Level Security returns nothing for anyone else's order.
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import OrderSummary from '../../../components/OrderSummary.astro';
+import TextLink from '../../../components/TextLink.astro';
+import { orderStatusCopy } from '../../../data/order-status';
+
+export const prerender = false;
+
+const supabase = Astro.locals.supabase!;
+const { number } = Astro.params;
+
+const { data: order } = await supabase
+  .from('orders')
+  .select('*, order_items(product_slug, name, unit_price_cents, quantity)')
+  .eq('number', number ?? '')
+  .maybeSingle();
+
+if (!order) Astro.response.status = 404;
+
+const status = order ? orderStatusCopy[order.status] : null;
+const address = (order?.shipping_address ?? null) as Record<string, string | null> | null;
+const addressLines = order && address
+  ? [
+      order.shipping_name,
+      address.line1,
+      address.line2,
+      [address.city, address.state, address.postal_code].filter(Boolean).join(', '),
+      address.country,
+    ].filter(Boolean)
+  : [];
+const placed = order ? new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date(order.created_at)) : '';
+---
+
+<BaseLayout title={order ? `Order ${order.number}` : 'Order not found'} description="Your NATH & JAID order." noindex>
+  <section class="order section">
+    <div class="container order-inner">
+      <p><a class="inline-link back" href="/account">← Your account</a></p>
+      {!order || !status ? (
+        <header class="order-header">
+          <h1>We couldn't find that order.</h1>
+          <p class="lead muted">It may belong to another account. Your orders are listed on your account page.</p>
+        </header>
+      ) : (
+      <>
+
+      <header class="order-header">
+        <p class="eyebrow">Placed {placed}</p>
+        <h1>{order.number}</h1>
+      </header>
+
+      <div class="status">
+        <p class="status-label">{status.label}</p>
+        <p class="muted">{status.line}</p>
+        {
+          order.status === 'fulfilled' && order.tracking_number && (
+            <p>
+              {order.carrier}: <span class="tracking">{order.tracking_number}</span>
+            </p>
+          )
+        }
+      </div>
+
+      <OrderSummary
+        items={order.order_items}
+        subtotalCents={order.subtotal_cents}
+        shippingCents={order.shipping_cents}
+        taxCents={order.tax_cents}
+        totalCents={order.total_cents}
+        refundedCents={order.amount_refunded_cents}
+      />
+
+      {
+        addressLines.length > 0 && (
+          <section aria-labelledby="ship-heading" class="ship-to">
+            <h2 id="ship-heading" class="eyebrow">Shipping to</h2>
+            <address>
+              {addressLines.map((line) => (
+                <>
+                  {line}
+                  <br />
+                </>
+              ))}
+            </address>
+          </section>
+        )
+      }
+
+      <TextLink href="/policies/returns">Returns and refunds</TextLink>
+      </>
+      )}
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .order-inner {
+    display: grid;
+    gap: 2rem;
+    max-width: 44rem;
+  }
+
+  .back { font-size: var(--fs-small); }
+
+  .order-header {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .status {
+    display: grid;
+    gap: 0.35rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--color-soft-ivory);
+  }
+
+  .status-label {
+    font-family: var(--font-serif);
+    font-size: var(--fs-h3);
+    color: var(--color-evergreen);
+  }
+
+  .tracking { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+  .ship-to {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  address { font-style: normal; }
+</style>

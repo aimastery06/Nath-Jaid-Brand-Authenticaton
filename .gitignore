@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.astro/
+.vercel/
+public/brand/
+.DS_Store
+.env
+.env.*
+!.env.example
+supabase/.branches
+supabase/.temp

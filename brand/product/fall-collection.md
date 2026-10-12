@@ -16,6 +16,8 @@
 
 **Hero image:** `images/fall/fall-collection-hero-v2.webp`
 
+**Hero image alt text:** The four Fall Collection candles — Pumpkin Chai, Apple Cider Hearth, Vanilla Amber, and Cedar & Fig — on a pale travertine console in late-afternoon light, with Vanilla Amber lit in front among a cinnamon stick, vanilla pod, apple slice, fig, and cedar sprig.
+
 ## Shared Product Specifications
 
 | Attribute | Value |
@@ -42,6 +44,7 @@ A mood may hold more than one candle in future collections.
 
 - **Slug:** `pumpkin-chai`
 - **Primary image:** `images/fall/pumpkin-chai-v2.webp`
+- **Image alt text:** Pumpkin Chai three-wick candle in translucent burnt-terracotta glass on a travertine block, beside a cinnamon stick and a dried maple leaf.
 - **Vessel:** translucent burnt terracotta
 - **Vessel accent color:** `#B65F43` (Burnt Terracotta)
 - **Scent mood:** Warm & Spiced
@@ -56,6 +59,7 @@ A mood may hold more than one candle in future collections.
 
 - **Slug:** `apple-cider-hearth`
 - **Primary image:** `images/fall/apple-cider-hearth-v2.webp`
+- **Image alt text:** Apple Cider Hearth three-wick candle in translucent honey-gold glass on a travertine block, beside an apple slice and two cloves.
 - **Vessel:** translucent honey-gold
 - **Vessel accent color:** `#A56A32` (Deep Amber)
 - **Scent mood:** Fruity & Bright
@@ -70,6 +74,7 @@ A mood may hold more than one candle in future collections.
 
 - **Slug:** `vanilla-amber`
 - **Primary image:** `images/fall/vanilla-amber-v2.webp`
+- **Image alt text:** Vanilla Amber three-wick candle in translucent champagne-gold glass on a travertine block, beside a dried vanilla pod and a small gold stone.
 - **Vessel:** translucent champagne gold
 - **Vessel accent color:** `#C79A4A` (Warm Gold)
 - **Scent mood:** Soft & Comforting
@@ -84,6 +89,7 @@ A mood may hold more than one candle in future collections.
 
 - **Slug:** `cedar-and-fig`
 - **Primary image:** `images/fall/cedar-and-fig-v2.webp`
+- **Image alt text:** Cedar & Fig three-wick candle in translucent deep-evergreen glass on a travertine block, beside a halved fig and a cedar sprig.
 - **Vessel:** translucent deep evergreen
 - **Vessel accent color:** `#183F35` (Evergreen)
 - **Scent mood:** Woody & Grounded

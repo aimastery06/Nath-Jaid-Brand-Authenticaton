@@ -1,0 +1,88 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import SeasonalHero from '../components/SeasonalHero.astro';
+import ScentMoodLinks from '../components/ScentMoodLinks.astro';
+import ProductGrid from '../components/ProductGrid.astro';
+import FeaturedSlideshow from '../components/FeaturedSlideshow.astro';
+import Button from '../components/Button.astro';
+import TextLink from '../components/TextLink.astro';
+import { activeCollection, getCollectionProducts } from '../data/catalog';
+import { company } from '../data/company';
+
+const collection = activeCollection;
+const products = getCollectionProducts(collection);
+---
+
+<BaseLayout description={`${company.name} makes candles inspired by seasons, memories, and everyday moments. ${collection.heroIntro}`}>
+  <SeasonalHero collection={collection} />
+
+  <ScentMoodLinks collection={collection} />
+
+  <section class="collection-grid section" aria-labelledby="grid-heading">
+    <div class="container">
+      <header class="section-header">
+        <p class="eyebrow">{collection.name}</p>
+        <h2 id="grid-heading">{collection.gridHeading}</h2>
+        <p class="muted">{collection.description}</p>
+      </header>
+      <ProductGrid products={products} />
+      <p class="grid-link">
+        <TextLink href={collection.route}>Explore the collection</TextLink>
+      </p>
+    </div>
+  </section>
+
+  <section class="statement on-dark section" aria-labelledby="statement-heading">
+    <div class="container statement-inner">
+      <h2 id="statement-heading" class="display">{company.tagline}</h2>
+      <div class="statement-copy">
+        <p class="lead">
+          We believe fragrance should be more than something that smells good. It should create a feeling.
+        </p>
+        <p class="muted">
+          Light a candle and the room changes with it — warmer, calmer, a little more yours. Every scent is made to
+          bring a season, a memory, or a mood home.
+        </p>
+        <Button href="/about" onDark>Our story</Button>
+      </div>
+    </div>
+  </section>
+
+  <FeaturedSlideshow collection={collection} />
+</BaseLayout>
+
+<style>
+  .section-header {
+    display: grid;
+    gap: 0.9rem;
+    max-width: 40rem;
+    margin-bottom: clamp(2.5rem, 2rem + 2vw, 4rem);
+  }
+
+  .grid-link {
+    margin-top: clamp(2.5rem, 2rem + 2vw, 4rem);
+    text-align: center;
+  }
+
+  .statement-inner {
+    display: grid;
+    gap: 2rem;
+  }
+
+  .statement-copy {
+    display: grid;
+    justify-items: start;
+    gap: 1.25rem;
+    max-width: 34rem;
+  }
+
+  .statement-copy .muted { margin-bottom: 0.75rem; }
+
+  @media (min-width: 1024px) {
+    .statement-inner {
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 6rem;
+    }
+  }
+</style>

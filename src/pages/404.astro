@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Button from '../components/Button.astro';
+import { activeCollection } from '../data/catalog';
+---
+
+<BaseLayout title="Page not found" description="This page couldn't be found. Explore the current NATH & JAID collection.">
+  <section class="not-found section">
+    <div class="container">
+      <p class="eyebrow">Page not found</p>
+      <h1>This room is empty.</h1>
+      <p class="lead muted">The page you were looking for has moved or never existed.</p>
+      <Button href={activeCollection.route}>Explore {activeCollection.name.replace(/^The /, 'the ')}</Button>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .not-found .container {
+    display: grid;
+    justify-items: start;
+    gap: 1.25rem;
+    padding-block: clamp(2rem, 4vw, 4rem);
+  }
+
+  .not-found .lead { margin-bottom: 0.75rem; }
+</style>

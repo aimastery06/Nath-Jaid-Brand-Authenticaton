@@ -1,0 +1,127 @@
+---
+// Password sign-in, plus an emailed sign-in link. Copy: brand/voice.md ("Accounts").
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import AuthShell from '../../components/AuthShell.astro';
+import FormField from '../../components/FormField.astro';
+import Button from '../../components/Button.astro';
+import { EMAIL_PATTERN, confirmUrl, field, safeNext, type FieldErrors } from '../../lib/server/forms';
+
+export const prerender = false;
+
+const { supabase, user } = Astro.locals;
+const next = safeNext(Astro.url.searchParams.get('next'));
+if (user) return Astro.redirect(next);
+
+const errors: FieldErrors = {};
+let formError = Astro.url.searchParams.get('error') === 'link'
+  ? 'That link has expired, was already used, or was opened in a different browser. Please sign in or request a new link.'
+  : '';
+let email = '';
+let magicEmail = '';
+let linkSentTo = '';
+
+if (Astro.request.method === 'POST' && supabase) {
+  const form = await Astro.request.formData();
+  const intent = field(form, 'intent');
+
+  if (intent === 'magic') {
+    magicEmail = field(form, 'email');
+    if (!EMAIL_PATTERN.test(magicEmail)) {
+      errors.magicEmail = 'Please enter an email address like name@example.com.';
+    } else {
+      // The same reply whether or not an account exists, so the form can't reveal who has one.
+      await supabase.auth.signInWithOtp({
+        email: magicEmail,
+        options: { shouldCreateUser: false, emailRedirectTo: confirmUrl(Astro.url, next) },
+      });
+      linkSentTo = magicEmail;
+    }
+  } else {
+    email = field(form, 'email');
+    const password = form.get('password');
+    if (!EMAIL_PATTERN.test(email)) errors.email = 'Please enter an email address like name@example.com.';
+    if (typeof password !== 'string' || !password) errors.password = 'Please enter your password.';
+
+    if (Object.keys(errors).length === 0) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password: password as string });
+      if (!error) {
+        await supabase.rpc('claim_guest_orders');
+        return Astro.redirect(next, 303);
+      }
+      formError =
+        error.code === 'email_not_confirmed'
+          ? 'Please confirm your email first. We sent a link to your inbox when you signed up.'
+          : error.status === 429
+            ? 'Too many attempts. Please wait a few minutes and try again.'
+            : "That email and password don't match. Please try again.";
+    }
+  }
+}
+---
+
+<BaseLayout title="Sign in" description="Sign in to your NATH & JAID account." noindex>
+  <AuthShell heading="Welcome back." lead="Sign in to see your orders.">
+    {formError && <p class="form-alert" role="alert">{formError}</p>}
+
+    <form method="post" data-validate="submit" novalidate aria-label="Sign in with your password">
+      <input type="hidden" name="intent" value="password" />
+      <FormField
+        id="email"
+        name="email"
+        type="email"
+        label="Email address"
+        autocomplete="email"
+        required
+        requiredMessage="Please enter your email address."
+        value={email}
+        error={errors.email}
+      />
+      <FormField
+        id="password"
+        name="password"
+        type="password"
+        label="Password"
+        autocomplete="current-password"
+        required
+        requiredMessage="Please enter your password."
+        error={errors.password}
+      />
+      <Button type="submit" block>Sign in</Button>
+    </form>
+
+    <div class="auth-links">
+      <a class="inline-link" href="/account/reset-password">Forgot your password?</a>
+      <a class="inline-link" href={`/account/sign-up${next !== '/account' ? `?next=${encodeURIComponent(next)}` : ''}`}>Create an account</a>
+    </div>
+
+    <hr class="auth-rule" />
+
+    {
+      linkSentTo ? (
+        <p class="form-notice" role="status">Check your inbox. We've sent a link to {linkSentTo}.</p>
+      ) : (
+        <form method="post" data-validate="submit" novalidate aria-label="Email me a sign-in link">
+          <input type="hidden" name="intent" value="magic" />
+          <FormField
+            id="magic-email"
+            name="email"
+            type="email"
+            label="Prefer no password? Email me a sign-in link."
+            autocomplete="email"
+            required
+            requiredMessage="Please enter your email address."
+            value={magicEmail}
+            error={errors.magicEmail}
+          />
+          <div>
+            <Button type="submit">Email me a link</Button>
+          </div>
+        </form>
+      )
+    }
+  </AuthShell>
+</BaseLayout>
+
+<script>
+  import '../../scripts/forms';
+</script>

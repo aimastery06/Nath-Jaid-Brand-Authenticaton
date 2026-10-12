@@ -1,0 +1,140 @@
+---
+// Admin orders list: filter by status, search by order number or email, newest first.
+import '../../../styles/admin.css';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import AdminNav from '../../../components/AdminNav.astro';
+import { orderStatusCopy, type OrderStatus } from '../../../data/order-status';
+import { formatCents } from '../../../lib/commerce';
+
+export const prerender = false;
+
+const supabase = Astro.locals.supabase!;
+const PAGE_SIZE = 50;
+
+const statuses = Object.keys(orderStatusCopy) as OrderStatus[];
+const statusParam = Astro.url.searchParams.get('status') ?? '';
+const status = statuses.includes(statusParam as OrderStatus) ? (statusParam as OrderStatus) : null;
+const q = (Astro.url.searchParams.get('q') ?? '').trim().slice(0, 120);
+const page = Math.max(1, Number.parseInt(Astro.url.searchParams.get('page') ?? '1', 10) || 1);
+
+let query = supabase
+  .from('orders')
+  .select('number, status, email, total_cents, created_at, needs_attention', { count: 'exact' })
+  .order('created_at', { ascending: false })
+  .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+
+if (status) query = query.eq('status', status);
+// Abandoned checkouts are noise unless asked for.
+else query = query.not('status', 'in', '(expired)');
+
+if (q) {
+  // Escape PostgREST pattern characters so the search is literal.
+  const term = q.replace(/[%_\\,()]/g, (c) => `\\${c}`);
+  query = /^nj-?\d+$/i.test(q) ? query.ilike('number', `%${term}%`) : query.ilike('email', `%${term}%`);
+}
+
+const { data: orders, count } = await query;
+const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+const dateFormat = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+const pageHref = (n: number) => {
+  const params = new URLSearchParams(Astro.url.searchParams);
+  params.set('page', String(n));
+  return `?${params}`;
+};
+---
+
+<BaseLayout title="Orders · Admin" description="NATH & JAID orders." noindex newsletter={false}>
+  <section class="admin">
+    <div class="container orders">
+      <AdminNav />
+      <h1>Orders</h1>
+
+      <form method="get" class="filters" role="search" aria-label="Filter orders">
+        <div class="field">
+          <label for="status">Status</label>
+          <select id="status" name="status" class="input">
+            <option value="">All except not completed</option>
+            {statuses.map((s) => <option value={s} selected={s === status}>{orderStatusCopy[s].label}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="q">Order number or email</label>
+          <input id="q" name="q" type="search" class="input" value={q} />
+        </div>
+        <button type="submit" class="btn">Filter</button>
+      </form>
+
+      <p class="muted">{count ?? 0} {count === 1 ? 'order' : 'orders'}</p>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th scope="col">Order</th>
+              <th scope="col">Placed</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              orders?.map((order) => (
+                <tr>
+                  <td>
+                    <a href={`/admin/orders/${order.number}`}>{order.number}</a>
+                    {order.needs_attention && <span class="flag">Attention</span>}
+                  </td>
+                  <td>{dateFormat.format(new Date(order.created_at))}</td>
+                  <td>{order.email ?? '—'}</td>
+                  <td>{orderStatusCopy[order.status].label}</td>
+                  <td class="num">{formatCents(order.total_cents)}</td>
+                </tr>
+              ))
+            }
+            {orders?.length === 0 && (
+              <tr>
+                <td colspan="5" class="muted">No orders match.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {
+        totalPages > 1 && (
+          <nav class="pager" aria-label="Pages">
+            {page > 1 && <a class="inline-link" href={pageHref(page - 1)}>Newer</a>}
+            <span class="muted">Page {page} of {totalPages}</span>
+            {page < totalPages && <a class="inline-link" href={pageHref(page + 1)}>Older</a>}
+          </nav>
+        )
+      }
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .orders {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .filters {
+    display: grid;
+    gap: 1rem;
+    align-items: end;
+  }
+
+  @media (min-width: 768px) {
+    .filters { grid-template-columns: 16rem minmax(0, 22rem) auto; justify-content: start; }
+  }
+
+  .flag { margin-left: 0.5rem; }
+
+  .pager {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+  }
+</style>
